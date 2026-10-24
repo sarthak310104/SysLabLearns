@@ -14,16 +14,23 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@lezer/highlight": "^1.2.5",
     "@mdx-js/loader": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
     "@next/mdx": "^16.4.3",
     "@xyflow/react": "^12.12.0",
+    "codemirror": "^6.0.2",
     "dexie": "^4.4.7",
     "next": "^16.4.3",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "sucrase": "^3.35.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
