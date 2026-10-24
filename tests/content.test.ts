@@ -28,3 +28,11 @@ describe("lesson content", () => {
     }
   });
 });
+
+describe("glossary", () => {
+  it("every term points at a real lesson", async () => {
+    const { GLOSSARY } = await import("@/content/glossary");
+    const slugs = new Set([...LESSONS, ...PROTOCOL_LESSONS, ...AWS_LESSONS].map((l) => l.slug));
+    for (const t of GLOSSARY) if (t.lesson) expect(slugs.has(t.lesson), t.term).toBe(true);
+  });
+});

@@ -1,4 +1,4 @@
-import { A1, A2, A3 } from "./system-design/presets";
+import { A0, A1, A2, A3 } from "./system-design/presets";
 import { A4, A5, A6, A7, A8 } from "./system-design/presets2";
 import { A9, A10, A11, A12 } from "./system-design/presets3";
 import type { Preset } from "@/lib/goals";
@@ -33,6 +33,7 @@ export const TRACKS: Track[] = [
     title: "System design",
     blurb: "Wire up components, send traffic through them, and find what gives out first.",
     modules: [
+      { code: "A0", title: "Start here: requests, servers and this lab", breaks: "Nothing yet: what a request is, the words you'll need, and how to read the lab.", slug: "a0-foundations", preset: A0 },
       { code: "A1", title: "Requests, latency and throughput", breaks: "One server, rising load: queues grow and requests get turned away.", slug: "a1-requests", preset: A1 },
       { code: "A2", title: "Load balancing", breaks: "A slow server drags everyone down, and a dead one keeps getting traffic.", slug: "a2-load-balancing", preset: A2 },
       { code: "A3", title: "Caching", breaks: "The database melts under reads, and a cold cache brings it back.", slug: "a3-caching", preset: A3 },
@@ -52,6 +53,7 @@ export const TRACKS: Track[] = [
     title: "Distributed protocols",
     blurb: "Write the code inside each box, then let a checker hunt for the order of events that breaks it.",
     modules: [
+      { code: "B0", title: "Start here: messages, nodes and your first protocol", breaks: "Two clients wait forever for an answer that never comes.", slug: "b0-foundations", lab: labBySlug("b0-foundations") },
       { code: "B1", title: "Time and ordering", breaks: "Clocks drift and two events swap order.", slug: "b1-clocks", lab: labBySlug("b1-clocks") },
       { code: "B2", title: "Exactly-once RPC", breaks: "A retried request runs twice.", slug: "b2-rpc", lab: labBySlug("b2-rpc") },
       { code: "B3", title: "Primary-backup", breaks: "The primary crashes and the backup takes over without the latest writes.", slug: "b3-primary-backup", lab: labBySlug("b3-primary-backup") },

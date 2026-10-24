@@ -1,0 +1,76 @@
+This track is about the rules computers follow to work together over a network: protocols. You'll write them yourself, in JavaScript, and the lab will try very hard to break them. This first lesson covers the ideas and just enough JavaScript to get going.
+
+## What makes a system "distributed"
+
+A **distributed system** is several computers working on one job by sending each other **messages**. Your bank, a chat app, and every database from lesson A4 onwards are distributed systems.
+
+The hard part is that no computer can see inside another. Each one only knows what it's been told, and being told takes time. Three things go wrong all the time:
+
+1. **Messages get lost, repeated, or delayed.** A message can arrive late, after a newer one, twice, or never.
+2. **Computers crash.** One stops halfway through, and the others can't tell "crashed" from "slow".
+3. **Clocks disagree.** No two computers agree exactly on the time.
+
+Every lab in this track makes you handle one of these: B1 clocks, B2 lost and repeated messages, B3 crashes, B4 agreeing on one value despite all three.
+
+## How the labs work
+
+Each computer in a lab is a **node**. You write the code for some of the nodes; the lab writes the rest. A node's code is a set of **handlers**: functions the lab calls when something happens to that node.
+
+- `init(ctx)` runs when the node starts. It returns the node's starting **state**: its memory.
+- `onMessage(state, from, msg, ctx)` runs when a message arrives.
+- `onTimer(state, timer, ctx)` runs when a timer you set goes off (from B2 on).
+
+`ctx` is your toolbox: `ctx.send(to, message)` sends a message, `ctx.setTimer(name, ms)` sets a timer, and `ctx.log(text)` writes a note you can see in the Run view.
+
+On the right, the **Code** tab is the editor. **Run** plays one run as an animation, where you can step through and click a node to see its state. **Check** runs the stages, many runs each, and if one breaks, it shows you exactly the sequence of messages that broke it.
+
+## Just enough JavaScript
+
+You don't need much. A message is an **object**: names and values in curly braces.
+
+```
+const msg = { type: "request", seq: 1, text: "hello" };
+msg.text           // "hello"
+msg.type === "request"   // true. Three equals signs compare.
+```
+
+Strings join with `+`, and have handy methods:
+
+```
+"hello".toUpperCase()   // "HELLO"
+1 + ": " + "HELLO"      // "1: HELLO"
+```
+
+`if` runs code only when something is true. `??` gives a fallback when a value is missing (`undefined`):
+
+```
+if (msg.type === "request") {
+  // only for requests
+}
+const n = state.counts["c1"] ?? 0;   // 0 if nothing is stored yet
+```
+
+State is an object you change in place, and the change sticks for the next message:
+
+```
+state.counts[from] = (state.counts[from] ?? 0) + 1;
+```
+
+That's everything this lab needs. When you get stuck, `ctx.log(...)` anything and look at it in the Run tab.
+
+## Your first protocol
+
+Two clients send the server words. Your server should answer each one with the word in capital letters, sending back the same `seq` number so the client knows which request the answer belongs to. The starter receives messages but never answers. Press **Run** to watch the clients wait forever, then fix it.
+
+For stage 2, number each client's requests separately: c1 gets "1: HELLO", "2: WORLD", "3: AGAIN", and c2 gets "1: PING", "2: PONG". That means the server has to remember how many requests each client has sent, which is exactly what state is for.
+
+<Goals />
+
+## What to remember
+
+- Distributed systems cooperate only by sending messages, and messages, computers and clocks all misbehave.
+- Your code is handlers: init returns state, onMessage reacts, ctx.send answers.
+- State is the node's memory: change it, and it's still changed for the next message.
+- Use ctx.log and the Run view to see what's actually happening.
+
+<Quiz />

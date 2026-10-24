@@ -2,6 +2,7 @@ import Link from "next/link";
 import { HeroDemo } from "@/components/HeroDemo";
 import { ProgressBackup } from "@/components/ProgressBackup";
 import { Roadmap } from "@/components/Roadmap";
+import { StartHere } from "@/components/StartHere";
 
 export default function Home() {
   return (
@@ -12,12 +13,13 @@ export default function Home() {
             Build it, load it, and watch where it gives.
           </h1>
           <p className="text-muted text-[17px] mt-4 max-w-[46ch]">
-            Every lesson is a live system you can push until something breaks. The traffic on the right is running now: every
-            ten seconds a spike hits, and you can watch the servers absorb it.
+            Every lesson is something live: a system you can overload, protocol code a checker tries to break, or a practice AWS
+            account you build in. The traffic on the right is running now: every ten seconds a spike hits, and you can watch the
+            servers absorb it.
           </p>
           <div className="flex flex-wrap gap-3 mt-7">
-            <Link href="/learn/a1-requests/" className="px-4 py-2.5 rounded-md bg-accent text-accent-ink font-medium neon">
-              Start the first lesson
+            <Link href="/learn/a0-foundations/" className="px-4 py-2.5 rounded-md bg-accent text-accent-ink font-medium neon">
+              Start from zero
             </Link>
             <Link href="/sandbox/" className="px-4 py-2.5 rounded-md border border-line hover:bg-panel-2">
               Open the sandbox
@@ -26,6 +28,7 @@ export default function Home() {
         </div>
         <HeroDemo />
       </section>
+      <StartHere />
       <Roadmap />
       <ProgressBackup />
     </div>

@@ -44,6 +44,7 @@ function ThemeToggle() {
 const NAV = [
   { href: "/", label: "Roadmap" },
   { href: "/sandbox/", label: "Sandbox" },
+  { href: "/glossary/", label: "Glossary" },
 ];
 
 export function SiteHeader() {
@@ -52,7 +53,7 @@ export function SiteHeader() {
     <header className="h-12 shrink-0 border-b border-line bg-panel flex items-center gap-3 sm:gap-6 px-3 sm:px-4 min-w-0 shadow-[0_1px_0_color-mix(in_srgb,var(--accent)_35%,transparent)]">
       <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
         <Logo />
-        SysLabLearns
+        <span className="hidden sm:inline">SysLabLearns</span>
       </Link>
       <nav className="flex items-center gap-1 text-sm">
         {NAV.map((n) => {

@@ -8,6 +8,61 @@ function n(id: string, kind: ComponentKind, label: string, x: number, y: number,
 const e = (source: string, target: string) => ({ id: `e-${source}-${target}`, source, target });
 
 /* ------------------------------------------------------------------ */
+/* A0: foundations and a tour of the lab                                */
+/* ------------------------------------------------------------------ */
+
+export const A0: Preset = {
+  id: "a0-tour",
+  title: "Users and one server",
+  graph: {
+    nodes: [n("users", "client", "Users", 0, 40, { rps: 20 }), n("api", "server", "Web server", 300, 20, { workers: 4, serviceMs: 40, queueLimit: 100 })],
+    edges: [e("users", "api")],
+  },
+  palette: [],
+  goals: [
+    {
+      id: "send",
+      text: "Press Send traffic and watch requests flow. The link is blue: plenty of room.",
+      holdMs: 1500,
+      check: (s) => clientView(s).ok > 0,
+    },
+    {
+      id: "yellow",
+      text: "Select Users and raise Requests per second until the server turns yellow.",
+      hint: "Click the Users box. In the panel, drag Requests per second up to about 90.",
+      holdMs: 1000,
+      check: (s) => ofKind(s, "server").some((x) => x.status === "warning" || x.status === "critical"),
+    },
+    {
+      id: "red",
+      text: "Keep going until it turns red and the verdict says Failing.",
+      hint: "Go past 100 requests per second, the server's limit, and wait a few seconds for its queue to fill.",
+      holdMs: 1000,
+      check: (s) => ofKind(s, "server").some((x) => x.status === "critical"),
+    },
+    {
+      id: "recover",
+      text: "Make it healthy again: lower the load, or select the server and give it more workers.",
+      holdMs: 3000,
+      check: (s, _g, mem) => {
+        if (ofKind(s, "server").some((x) => x.status === "critical")) mem.sawRed = true;
+        const c = clientView(s);
+        return Boolean(mem.sawRed) && c.active && c.errorRate < 0.002 && ofKind(s, "server").every((x) => x.status === "ok" || x.status === "idle");
+      },
+    },
+    {
+      id: "crash",
+      text: "Select the server and press Crash, see what users get, then Recover it.",
+      holdMs: 1500,
+      check: (s, _g, mem) => {
+        if (ofKind(s, "server").some((x) => x.down)) mem.sawDown = true;
+        return Boolean(mem.sawDown) && ofKind(s, "server").every((x) => !x.down) && clientView(s).ok > 0;
+      },
+    },
+  ],
+};
+
+/* ------------------------------------------------------------------ */
 /* A1: requests, latency, throughput                                   */
 /* ------------------------------------------------------------------ */
 

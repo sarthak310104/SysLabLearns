@@ -266,3 +266,27 @@ export const B3_NO_SYNC = B3_SOLUTION.replace(
 ).replace(`function sendSync(s, ctx) {
   ctx.send(s.view.backup, { type: "sync", view: s.view.num, data: s.data, last: s.last });`, `function sendSync(s, ctx) {
   ctx.send(s.view.backup, { type: "sync", view: s.view.num, data: {}, last: {} });`);
+
+export const B0_SOLUTION = `
+export const server = {
+  init: () => ({ counts: {} }),
+  onMessage(state, from, msg, ctx) {
+    if (msg.type !== "request") return;
+    state.counts[from] = (state.counts[from] ?? 0) + 1;
+    ctx.send(from, { type: "reply", seq: msg.seq, result: state.counts[from] + ": " + msg.text.toUpperCase() });
+  },
+};
+`;
+
+/** Stage 1 only: capitals, no numbering. */
+export const B0_STAGE1 = `
+export const server = {
+  init: () => ({}),
+  onMessage(state, from, msg, ctx) {
+    if (msg.type === "request") ctx.send(from, { type: "reply", seq: msg.seq, result: msg.text.toUpperCase() });
+  },
+};
+`;
+
+/** Counts every request together instead of per client. */
+export const B0_SHARED_COUNT = B0_SOLUTION.replace(/state\.counts\[from\]/g, "state.counts.all");

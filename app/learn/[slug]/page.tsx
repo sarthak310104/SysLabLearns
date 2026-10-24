@@ -7,6 +7,7 @@ import { AWS_LESSONS, awsLessonBySlug, LESSONS, lessonBySlug, PROTOCOL_LESSONS, 
 
 // One loader per lesson keeps the imports static, which every bundler handles.
 const CONTENT: Record<string, () => Promise<{ default: ComponentType }>> = {
+  "a0-foundations": () => import("@/content/system-design/a0-foundations.mdx"),
   "a1-requests": () => import("@/content/system-design/a1-requests.mdx"),
   "a2-load-balancing": () => import("@/content/system-design/a2-load-balancing.mdx"),
   "a3-caching": () => import("@/content/system-design/a3-caching.mdx"),
@@ -19,6 +20,7 @@ const CONTENT: Record<string, () => Promise<{ default: ComponentType }>> = {
   "a10-consistent-hashing": () => import("@/content/system-design/a10-consistent-hashing.mdx"),
   "a11-rate-limiting": () => import("@/content/system-design/a11-rate-limiting.mdx"),
   "a12-autoscaling": () => import("@/content/system-design/a12-autoscaling.mdx"),
+  "b0-foundations": () => import("@/content/protocols/b0-foundations.mdx"),
   "b1-clocks": () => import("@/content/protocols/b1-clocks.mdx"),
   "b2-rpc": () => import("@/content/protocols/b2-rpc.mdx"),
   "b3-primary-backup": () => import("@/content/protocols/b3-primary-backup.mdx"),

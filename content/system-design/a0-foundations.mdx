@@ -1,0 +1,60 @@
+Start here if terms like "server", "latency" or "p99" are new to you. This lesson explains the handful of ideas every other lesson builds on, and gives you a tour of the lab on the right.
+
+## Clients and servers
+
+When you open an app, your phone or browser is the **client**. It sends a **request** over the internet to a **server**, a computer somewhere that's always on, waiting for requests. The server does some work (look something up, save something) and sends back a **response**.
+
+Most of the web speaks **HTTP**. A request says what it wants with a **method** and a **URL**: `GET /orders/42` means "send me order 42", `POST /orders` means "here's a new order". The response starts with a **status code**:
+
+- `200` OK: it worked.
+- `404` Not Found: there's no such thing.
+- `500` Internal Server Error: the server broke while handling it.
+- `503` Service Unavailable: the server is too busy or down right now.
+
+## Behind the server
+
+One server rarely works alone. It usually talks to a **database**, which keeps data safely on disk, and maybe a **cache**, which keeps popular data in memory so it's faster to fetch. A **load balancer** spreads requests across several servers. You'll meet each of these in its own lesson. For now, one server is enough.
+
+## Two numbers that matter
+
+- **Latency** is how long one request takes, from sending to getting the answer, usually in milliseconds (ms). 1000 ms is one second.
+- **Throughput** is how many requests a system handles per second (req/s).
+
+They pull against each other. As a server gets busier, requests start waiting in line, and latency rises. Push it past what it can handle and it starts turning requests away.
+
+## Averages lie: percentiles
+
+If 99 requests take 50 ms and one takes 5 seconds, the average is about 100 ms, which describes nobody's experience. So we use **percentiles**:
+
+- **p50** (the median): half of requests are faster than this.
+- **p99**: 99% are faster, so this is the slowest 1%.
+
+The lab shows p99, as "Slowest 1%", because that's what your unluckiest users feel. And with many users, "unlucky" happens to someone every second.
+
+## A tour of the lab
+
+The panel on the right is a live simulation. **Users** send requests to a **Web server**. Each box is a component; each line is a connection that requests travel along.
+
+- **Send traffic** starts the simulation. **1x, 2x, 5x** change its speed, and **Restart** starts over.
+- **Dots** on a line are requests travelling; fainter dots going back are responses.
+- **Click a box** to open its settings and charts in the panel. Click a line to see or cut that connection.
+- **Colors** tell you how each part is doing:
+  - **Blue**: plenty of room.
+  - **Green**: busy, but healthy.
+  - **Yellow**: it works, but something is close to its limit.
+  - **Red**: overloaded or failing. Red links also march, so you can spot them without relying on color.
+- **Thicker lines** carry more traffic.
+- The **verdict** in the corner (press Show) says whether the whole design is Healthy, Could be better, or Failing, and suggests what to look at.
+
+This server has 4 workers, each handling one request at a time, and each request takes about 40 ms of work. So it can serve roughly 100 requests per second before it's full. Work through the goals and watch the colors change as you cross that line.
+
+<Goals />
+
+## What to remember
+
+- Clients send requests; servers do work and send responses. HTTP status codes say how it went.
+- Latency is time per request; throughput is requests per second. Busier means slower.
+- Look at p99, not the average.
+- In the lab: blue is room to spare, green is healthy, yellow needs attention, red is failing.
+
+<Quiz />

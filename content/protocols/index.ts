@@ -1,5 +1,6 @@
 import type { CheckOptions, SimulateOptions } from "@/engine/protocol/check";
 import type { NetworkConfig, ProtocolSpec } from "@/engine/protocol/types";
+import { B0, B0_STARTER } from "./b0";
 import { B1, B1_STARTER } from "./b1";
 import { B2, B2_STARTER } from "./b2";
 import { B3, B3_STARTER } from "./b3";
@@ -35,6 +36,31 @@ export interface ProtocolLab {
 export const SIM_DEFAULTS: SimulateOptions = { runs: 100, maxSteps: 600, healSteps: 3000, seed: 3, crashChance: 0, restartAfter: 50 };
 
 export const LABS: ProtocolLab[] = [
+  {
+    id: B0.id,
+    slug: "b0-foundations",
+    spec: B0,
+    starter: B0_STARTER,
+    stages: [
+      {
+        id: "capitals",
+        title: "Answer in capitals",
+        blurb: "50 runs. Every request gets a reply, and the reply contains the text in capital letters.",
+        hint: 'Inside the if: ctx.send(from, { type: "reply", seq: msg.seq, result: msg.text.toUpperCase() });',
+        kind: "simulate",
+        invariants: ["Replies are in capitals"],
+        sim: { runs: 50 },
+      },
+      {
+        id: "numbered",
+        title: "Number each client's requests",
+        blurb: 'Reply "1: HELLO", then "2: WORLD", counting each client separately. The server has to remember.',
+        hint: "Start with state = { counts: {} } in init. In onMessage, add one to state.counts[from] (it starts undefined, so use ?? 0).",
+        kind: "simulate",
+        sim: { runs: 50 },
+      },
+    ],
+  },
   {
     id: B1.id,
     slug: "b1-clocks",

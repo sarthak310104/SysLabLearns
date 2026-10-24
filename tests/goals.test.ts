@@ -3,7 +3,7 @@ import { Simulation } from "@/engine/model/simulation";
 import { defaultConfig } from "@/engine/model/defaults";
 import type { AnyConfig, ComponentKind, FaultAction, Graph, GraphNode } from "@/engine/model/types";
 import { GoalTracker, type Preset } from "@/lib/goals";
-import { A1, A2, A3 } from "@/content/system-design/presets";
+import { A0, A1, A2, A3 } from "@/content/system-design/presets";
 import { A4, A5, A6, A7, A8 } from "@/content/system-design/presets2";
 import { A9, A10, A11, A12 } from "@/content/system-design/presets3";
 
@@ -60,6 +60,17 @@ const addNodes = (g: Graph, nodes: GraphNode[], edges: { id: string; source: str
 const allGoals = (p: Preset) => p.goals.map((g) => g.id).sort();
 
 describe("every lesson goal can be completed", () => {
+  it("A0", () => {
+    const done = play(A0, A0.graph, [
+      { at: 2000, config: "users", patch: { rps: 92 } },
+      { at: 8000, config: "users", patch: { rps: 140 } },
+      { at: 16000, config: "users", patch: { rps: 40 } },
+      { at: 26000, fault: { type: "crash", nodeId: "api" } },
+      { at: 29000, fault: { type: "recover", nodeId: "api" } },
+    ], 34000);
+    expect([...done].sort()).toEqual(allGoals(A0));
+  });
+
   it("A1", () => {
     const done = play(A1, A1.graph, [
       { at: 1000, config: "users", patch: { rps: 90 } },

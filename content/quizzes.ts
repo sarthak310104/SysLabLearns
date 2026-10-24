@@ -9,6 +9,70 @@ export interface Question {
 
 /** End-of-lesson questions, keyed by lesson slug. Each checks reasoning, not recall. */
 export const QUIZZES: Record<string, Question[]> = {
+  "a0-foundations": [
+    {
+      q: "A server answers with status 503. What does that usually mean?",
+      options: ["It worked", "The thing you asked for doesn't exist", "The server is too busy or down right now", "You're not logged in"],
+      answer: 2,
+      explain: "503 Service Unavailable: the server can't take the request at the moment. 200 is success, 404 is not found, 500 is a crash while handling it.",
+    },
+    {
+      q: "What's the difference between latency and throughput?",
+      options: ["They're the same", "Latency is time per request; throughput is requests handled per second", "Latency is requests per second; throughput is time", "Throughput only applies to databases"],
+      answer: 1,
+      explain: "Latency is how long one request takes. Throughput is how many get handled each second.",
+    },
+    {
+      q: "99 requests take 50 ms and 1 takes 5 seconds. Which number shows the slow one?",
+      options: ["The average, about 100 ms", "The median (p50), 50 ms", "The p99", "None of them"],
+      answer: 2,
+      explain: "The p99 is the slowest 1%, exactly where that one slow request shows up. The average blends it away.",
+    },
+    {
+      q: "A server has 4 workers and each request takes 40 ms of work. Roughly how many requests per second can it serve?",
+      options: ["4", "40", "100", "1000"],
+      answer: 2,
+      explain: "Each worker finishes 1000 / 40 = 25 requests a second, and 4 workers make about 100.",
+    },
+    {
+      q: "In the lab, a link turns yellow. What should you do?",
+      options: ["Nothing, yellow is ideal", "Look closer: something is near its limit and could use more room", "Restart the simulation", "Delete the link"],
+      answer: 1,
+      explain: "Blue and green are healthy, yellow means close to a limit, red means failing. The verdict panel says what to look at.",
+    },
+  ],
+  "b0-foundations": [
+    {
+      q: "What makes a system distributed?",
+      options: ["It has a lot of code", "Several computers work on one job by sending messages", "It runs in the cloud", "It uses a database"],
+      answer: 1,
+      explain: "Separate computers, no shared memory, cooperating only through messages.",
+    },
+    {
+      q: "One computer stops hearing from another. What can it tell?",
+      options: ["That the other crashed", "That the network is down", "Nothing for sure: crashed, slow and unreachable look the same", "That its own clock is wrong"],
+      answer: 2,
+      explain: "From the outside, a crashed computer, a slow one and a lost message all look like silence.",
+    },
+    {
+      q: "In the labs, what is a node's state?",
+      options: ["Its network address", "Its memory: an object returned by init and kept between messages", "A log file", "The message it's handling"],
+      answer: 1,
+      explain: "init returns the state. Handlers can change it, and the changes are still there for the next message.",
+    },
+    {
+      q: "Why does each reply carry the same seq as its request?",
+      options: ["It's decoration", "So the client knows which request the answer belongs to", "To encrypt it", "The server requires it"],
+      answer: 1,
+      explain: "With several messages in flight, numbers tie each answer to its question. B2 builds on this.",
+    },
+    {
+      q: "state.counts[from] is undefined the first time. What does (state.counts[from] ?? 0) + 1 give?",
+      options: ["NaN", "undefined", "1", "An error"],
+      answer: 2,
+      explain: "?? swaps a missing value for 0, so the first count is 1.",
+    },
+  ],
   "a1-requests": [
     {
       q: "A server has 8 workers and each request takes 50 ms. Roughly how many requests per second can it handle at most?",
