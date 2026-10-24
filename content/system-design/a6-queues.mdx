@@ -1,0 +1,41 @@
+Some work is slow and doesn't need to finish before you answer the user: resizing an uploaded photo, sending a confirmation email, generating a report. Doing that work inside the request makes users wait for something they don't need to wait for.
+
+## The problem with doing it inline
+
+In the lab, every upload takes 200 ms of processing, and the Upload API does it while the user waits. At 100 uploads a second, its 16 workers can't keep up. The queue fills, users wait, and then they get errors.
+
+## Hand the work to a queue
+
+A **message queue** splits the job in two:
+
+1. The API puts a message on the queue ("process this upload") and answers the user straight away: *accepted*.
+2. Separate **workers** pull messages off the queue and do the slow part in their own time.
+
+The user's request now only costs the time to drop a message on the queue. The heavy work happens elsewhere, at whatever pace the workers can manage.
+
+Build it: add a queue, connect the Upload API to it, add servers as workers and connect the queue to them. Set the workers to 200 ms of work, and the API to 5 ms, since all it does now is hand work off.
+
+## Backlogs absorb spikes
+
+A queue's real superpower is smoothing out bursts. Switch the traffic to spikes. During each spike, messages arrive faster than workers can process them, and a **backlog** builds up. When the spike passes, workers chew through it.
+
+This works only if workers can keep up *on average*. If they can't, the backlog grows forever. Watch **Oldest**: the age of the oldest waiting message is the number users actually feel, because it's how late their work will be done.
+
+<Note>
+"Accepted" isn't "done". Once work is asynchronous, the user needs a way to find out when it finishes: a status page, a notification, or the app polling for the result.
+</Note>
+
+## Failure isolation
+
+Crash all the workers. The API keeps accepting uploads and users keep getting fast answers. The work just waits. When the workers come back, they pick up where they left off.
+
+That separation is called **decoupling**: a failure on one side of the queue doesn't immediately take down the other. A queue that's durable (keeps messages through crashes) and retries failed deliveries, with a **dead-letter** pile for messages that keep failing, is one of the most useful building blocks you'll have.
+
+<Goals />
+
+## What to remember
+
+- Move slow work that the user doesn't need to wait for behind a queue.
+- Queues absorb spikes, but workers must keep up on average.
+- Watch the age of the oldest message, not just the count.
+- A queue isolates failures: producers keep working while consumers recover.

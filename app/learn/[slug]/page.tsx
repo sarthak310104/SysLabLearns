@@ -8,6 +8,11 @@ const CONTENT: Record<string, () => Promise<{ default: ComponentType }>> = {
   "a1-requests": () => import("@/content/system-design/a1-requests.mdx"),
   "a2-load-balancing": () => import("@/content/system-design/a2-load-balancing.mdx"),
   "a3-caching": () => import("@/content/system-design/a3-caching.mdx"),
+  "a4-replication": () => import("@/content/system-design/a4-replication.mdx"),
+  "a5-sharding": () => import("@/content/system-design/a5-sharding.mdx"),
+  "a6-queues": () => import("@/content/system-design/a6-queues.mdx"),
+  "a7-resilience": () => import("@/content/system-design/a7-resilience.mdx"),
+  "a8-partitions": () => import("@/content/system-design/a8-partitions.mdx"),
 };
 
 export function generateStaticParams() {

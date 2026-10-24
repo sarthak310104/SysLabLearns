@@ -50,7 +50,7 @@ export function SandboxView() {
       <Lab
         key={version}
         graph={graph}
-        palette={["client", "loadBalancer", "server", "cache", "database"]}
+        palette={["client", "loadBalancer", "server", "cache", "database", "replica", "queue"]}
         layout="wide"
         onGraphChange={onGraphChange}
       />

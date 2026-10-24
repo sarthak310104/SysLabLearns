@@ -1,0 +1,45 @@
+Most apps read far more than they write. Someone posts once and a thousand people view it. That imbalance is the whole reason replication is useful: you can make copies of your data and spread the reads across them.
+
+## One database, too many reads
+
+The lab starts with one database handling everything: 600 requests a second, 90% of them reads. It can serve about 320. Press **Send traffic** and watch it fall over.
+
+You could buy a bigger machine, but there's a cheaper trick for read-heavy traffic.
+
+## Read replicas
+
+A **read replica** is a copy of the database that only answers reads. All writes still go to one place, the **primary**, and the primary streams every change to its replicas so they stay up to date.
+
+That gives you two kinds of links in the lab:
+
+- **API server to replica** carries reads. The API server sends writes to the primary and spreads reads across replicas.
+- **Primary to replica** carries replication: every write the primary commits gets copied over.
+
+Add replicas until the errors stop. Each one adds about 320 reads a second of capacity.
+
+## Replication lag
+
+Copying takes time. A replica applies writes one at a time, in order, and it does that alongside serving reads. When it's busy, applying gets slower. When writes arrive faster than it can apply them, it falls behind. That gap is **replication lag**.
+
+While a replica lags, it answers reads with old data: a **stale read**. Someone updates their profile, refreshes, and sees the old version, because the refresh happened to hit a replica that hasn't caught up.
+
+Raise the share of writes and watch the **Behind by** number climb on each replica.
+
+<Note>
+A common fix is **read-your-writes**: right after someone writes, send *their* reads to the primary for a few seconds. Everyone else can tolerate a little staleness.
+</Note>
+
+## When the primary dies
+
+Crash the primary. Reads keep working, because replicas are independent copies. Every write fails, though, because only the primary accepts them.
+
+Real systems recover with **failover**: promote one replica to be the new primary and point writes at it. The hard parts are deciding the primary is truly dead, not just slow, and making sure the old one doesn't come back thinking it's still in charge. Writes it accepted that never reached a replica can be lost. You'll meet that problem properly in the protocols track.
+
+<Goals />
+
+## What to remember
+
+- Replicas scale reads, not writes: every write still goes through one primary.
+- Replication takes time, and a busy replica falls further behind.
+- A lagging replica serves stale reads.
+- Losing the primary stops writes until something takes its place.

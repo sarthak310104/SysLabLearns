@@ -1,0 +1,36 @@
+Replicas help when reads are the problem. When there's simply too much data or too much traffic of every kind for one database, you split the data itself into pieces and give each piece its own database. Each piece is a **shard**.
+
+## Routing by key
+
+Every request in the lab is about a key: a user, a product, a post. The **shard router** hashes that key and uses the result to pick a shard. The same key always goes to the same shard, which matters: that's where its data lives.
+
+The lab starts with two shards and 900 requests a second. Each shard handles about 320. Add shards until it holds.
+
+<Note>
+Notice that adding a shard changes where keys go. In a real system that means moving data. Simple "hash mod N" sends almost every key somewhere new when N changes; **consistent hashing** is the usual fix, moving only about one Nth of the keys.
+</Note>
+
+## The celebrity problem
+
+Hashing spreads *keys* evenly. It doesn't spread *traffic* evenly if some keys are far more popular than others.
+
+Turn up **Traffic to one celebrity key**. That one key always hashes to the same shard, so that shard takes the celebrity's entire load on top of its normal share. It melts while the other shards sit half idle. The total capacity is fine; it's in the wrong place.
+
+Now try adding more shards. It doesn't help. The celebrity still lands on exactly one of them.
+
+## What actually helps
+
+The answer is to stop the hot key from reaching the shard at all. A cache in front of the router answers the celebrity from memory, so the shard only sees the occasional miss. Other real-world options:
+
+- **Replicate the hot key** across several shards and spread its reads.
+- **Split the key**: store a celebrity's follower list as many smaller keys.
+- **Special-case it**: big platforms handle their most famous accounts differently from everyone else.
+
+<Goals />
+
+## What to remember
+
+- Sharding splits data so each database only handles part of it.
+- A key always routes to the same shard; changing the number of shards means moving data.
+- Even hashing doesn't mean even load: hot keys create hot shards.
+- More shards can't fix one hot key. Caching or splitting the key can.

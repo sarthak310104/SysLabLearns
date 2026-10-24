@@ -1,4 +1,5 @@
 import { A1, A2, A3 } from "./system-design/presets";
+import { A4, A5, A6, A7, A8 } from "./system-design/presets2";
 import type { Preset } from "@/lib/goals";
 
 export interface Module {
@@ -28,11 +29,11 @@ export const TRACKS: Track[] = [
       { code: "A1", title: "Requests, latency and throughput", breaks: "One server, rising load: queues grow and requests get turned away.", slug: "a1-requests", preset: A1 },
       { code: "A2", title: "Load balancing", breaks: "A slow server drags everyone down, and a dead one keeps getting traffic.", slug: "a2-load-balancing", preset: A2 },
       { code: "A3", title: "Caching", breaks: "The database melts under reads, and a cold cache brings it back.", slug: "a3-caching", preset: A3 },
-      { code: "A4", title: "Databases and replication", breaks: "Replicas fall behind and readers see old data.", comingIn: "Phase 2" },
-      { code: "A5", title: "Sharding", breaks: "One celebrity key overloads a single shard.", comingIn: "Phase 2" },
-      { code: "A6", title: "Queues and async work", breaks: "Consumers fall behind and the backlog never drains.", comingIn: "Phase 2" },
-      { code: "A7", title: "Timeouts, retries and circuit breakers", breaks: "Retries turn a small outage into a big one.", comingIn: "Phase 2" },
-      { code: "A8", title: "Consistency and partitions", breaks: "The network splits and you must pick: refuse writes or diverge.", comingIn: "Phase 2" },
+      { code: "A4", title: "Databases and replication", breaks: "Replicas fall behind and readers see old data.", slug: "a4-replication", preset: A4 },
+      { code: "A5", title: "Sharding", breaks: "One celebrity key overloads a single shard.", slug: "a5-sharding", preset: A5 },
+      { code: "A6", title: "Queues and async work", breaks: "Spikes build a backlog, and workers must keep up on average.", slug: "a6-queues", preset: A6 },
+      { code: "A7", title: "Timeouts, retries and circuit breakers", breaks: "A slow database plus impatient retries: lots of work, no answers.", slug: "a7-resilience", preset: A7 },
+      { code: "A8", title: "Consistency and partitions", breaks: "The network splits and you must pick: refuse writes or diverge.", slug: "a8-partitions", preset: A8 },
     ],
   },
   {

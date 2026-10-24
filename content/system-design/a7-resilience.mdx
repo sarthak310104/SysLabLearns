@@ -1,0 +1,44 @@
+This lesson is about the moments when something gets slow or stops answering, and how the rest of the system reacts. Get the reaction wrong and a small problem turns into a total outage.
+
+## Goodput collapse
+
+The database in the lab can serve about 320 requests a second, and users send 200. Everything's fine. Now double its work per query to 50 ms. It can still serve about 160 a second, so you'd expect roughly 80% of requests to succeed.
+
+Try it. Almost nothing succeeds.
+
+Here's what's happening. Requests pile up in the API server's queue of 200. Users only wait one second before giving up, but a request now waits longer than that in the queue. By the time a worker picks it up, the user has gone. The database spends all its capacity on answers nobody is waiting for. Throughput is fine; **goodput**, useful throughput, is zero.
+
+Retries make it worse. Each user who gives up immediately tries again, up to three times, so the load on an already overloaded system multiplies.
+
+## Shed load early
+
+The fix is counterintuitive: let the API server turn requests away sooner. A short queue means a request either gets served soon or gets an immediate "too busy". Every request the database works on is one someone is still waiting for, and success climbs back to what the database can actually handle.
+
+This is **load shedding**. A fast "no" is better than a slow "yes" that arrives after the user has left.
+
+## Retry budgets
+
+Retries are useful. Most failures are blips, and trying again just works. The problem is when everything is failing, because then retries only add load.
+
+Two habits make retries safe:
+
+- **Backoff with jitter**: wait a little before retrying, longer each time, with randomness so clients don't all retry in lockstep.
+- **A retry budget**: never retry more than a small share of requests, say 10%. During a blip, that's plenty. During an outage, it caps how much extra load clients can add.
+
+## Timeouts and circuit breakers
+
+A slow dependency is one thing. A dependency that never answers is worse. Cut the network between the API server and the database. Requests disappear into the void, and each one ties up a worker that waits forever. Soon every worker is stuck and the API server is frozen, even for requests that don't need the database.
+
+- A **timeout** puts a limit on how long a worker will wait.
+- A **circuit breaker** watches recent calls. When most are failing, it stops calling for a few seconds and fails immediately instead, then lets a few trial calls through to see if things have recovered.
+
+Together they turn "everything hangs" into "this one feature fails fast".
+
+<Goals />
+
+## What to remember
+
+- Overloaded systems can do lots of work and still help no one: watch goodput, not throughput.
+- Bounded queues and load shedding keep work useful.
+- Retry with backoff, jitter and a budget, or retries become an attack on your own system.
+- Every call to another system needs a timeout; a circuit breaker stops you waiting on something that's clearly broken.

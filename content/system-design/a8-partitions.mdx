@@ -1,0 +1,41 @@
+Once your data lives in more than one place, the network between those places becomes part of your system. Networks fail. This lesson is about the choice you're forced to make when they do.
+
+## Two regions, one dataset
+
+The lab has users in Europe and America, each talking to a database in their own region. Both databases accept writes, and each streams its writes to the other. Normally they stay close to identical, a few dozen milliseconds apart.
+
+## The network splits
+
+Select a link between the two databases and cut it. Neither side can reach the other, and neither side knows whether the other is down or just unreachable. This is a **network partition**.
+
+Each database now has to decide what to do with writes:
+
+- **Stay available**: keep accepting writes locally and sync later. Users notice nothing. But the two copies drift apart, and if both sides change the same thing, those changes conflict.
+- **Stay consistent**: refuse writes that can't be confirmed by the other side. The data stays in agreement, but some users get errors until the network heals.
+
+You can't have both during a partition. That trade-off is the core of the **CAP theorem**: when the network is partitioned, you pick consistency or availability.
+
+## Counting the cost of availability
+
+In available mode, writes keep succeeding and **Not yet synced** climbs on both sides. Reconnect the link, and the buffered writes flow across. Any key that was written on *both* sides during the partition is a conflict. Here, the system keeps one version and the other is simply lost. Those are your **lost updates**.
+
+<Note>
+Real systems handle conflicts in different ways: last-writer-wins (simple, loses data), keeping both versions and asking the app to merge, or data types that merge automatically. That last option, CRDTs, has its own module in the protocols track.
+</Note>
+
+## The cost of consistency, even without a partition
+
+Switch both databases to consistent mode. Before cutting anything, look at the latency: every write now waits for a round trip to the other region. Consistency costs latency on every write, not just during failures.
+
+Cut the link again. Writes fail instead of drifting. When it heals, there's nothing to reconcile.
+
+Neither choice is wrong. A shopping cart can usually tolerate a conflict; a bank balance can't.
+
+<Goals />
+
+## What to remember
+
+- A partition makes two healthy servers unable to agree, and neither knows why.
+- During a partition you choose: keep accepting writes and reconcile later, or refuse them.
+- Availability risks conflicts and lost updates.
+- Consistency costs latency all the time, and errors during a partition.
