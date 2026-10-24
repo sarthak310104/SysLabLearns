@@ -466,4 +466,207 @@ export const QUIZZES: Record<string, Question[]> = {
       explain: "Flapping wastes start-up time and leaves the system under-provisioned when traffic returns. A cool-down before removing capacity smooths it out.",
     },
   ],
+"b1-clocks": [
+    {
+      q: "Server A logs an event at 10:00:00.003 by its own clock, and server B logs one at 10:00:00.001 by its clock. What can you conclude?",
+      options: ["B's event came first", "A's event came first", "Nothing about their order, from the clocks alone", "They happened at the same time"],
+      answer: 2,
+      explain: "Clocks on different machines drift and get corrected at different moments, so a few milliseconds of difference tells you nothing. Only causality, carried by messages, orders events across machines.",
+    },
+    {
+      q: "Event a has Lamport time 3 and event b has Lamport time 7. What do you know?",
+      options: ["a happened before b", "b did not happen before a", "a and b are concurrent", "a and b are on the same process"],
+      answer: 1,
+      explain: "If b happened before a, b's Lamport time would have to be smaller. It isn't, so b didn't. But a smaller time doesn't prove a came first: they could still be concurrent.",
+    },
+    {
+      q: "Why does a Lamport receive take the larger of its own counter and the message's stamp?",
+      options: [
+        "To keep counters small",
+        "So the receive is stamped later than the send that caused it",
+        "So all processes end up with the same counter",
+        "To detect lost messages",
+      ],
+      answer: 1,
+      explain: "The send happened before the receive. Jumping past the sender's stamp guarantees the receive gets a bigger number, and chains of messages carry that guarantee along.",
+    },
+    {
+      q: "Two events have vector stamps {p1: 2, p2: 0} and {p1: 1, p2: 3}. How are they related?",
+      options: ["The first happened before the second", "The second happened before the first", "They are concurrent", "They are the same event"],
+      answer: 2,
+      explain: "The first is bigger in p1's slot and the second is bigger in p2's. Neither is less than or equal to the other in every slot, so neither could have known about the other.",
+    },
+    {
+      q: "What do vector clocks give you that Lamport clocks don't, and at what cost?",
+      options: [
+        "Real wall-clock times, at the cost of a time server",
+        "Exactly whether two events are causally related, at the cost of one counter per process",
+        "Protection against lost messages, at the cost of retries",
+        "A total order of all events, at the cost of extra messages",
+      ],
+      answer: 1,
+      explain: "Comparing vectors tells you before, after or concurrent, with no false answers. The price is size: every stamp carries an entry for every process.",
+    },
+  ],
+  "b2-rpc": [
+    {
+      q: "A client sends a request and hears nothing back. What does it know?",
+      options: ["The server never got it", "The server crashed", "Either the request or the reply was lost, and it can't tell which", "The server is overloaded"],
+      answer: 2,
+      explain: "A lost request and a lost reply look the same from the client's side. That ambiguity is why retries alone can run an operation twice.",
+    },
+    {
+      q: "Which operation is safe to retry without any duplicate detection?",
+      options: ["Append \"x\" to a string", "Add 10 to a balance", "Read the current value of a key", "Send an email"],
+      answer: 2,
+      explain: "Reading twice gives the same result and changes nothing, so it's idempotent. The others have an effect that doubles if they run twice.",
+    },
+    {
+      q: "Why can the server get away with remembering just one entry per client in its duplicate table?",
+      options: [
+        "Clients never retry more than once",
+        "Each client has only one request outstanding, so anything older is already answered",
+        "The network never delivers old messages",
+        "The table is cleared after every reply",
+      ],
+      answer: 1,
+      explain: "A client only sends request n+1 after it has the reply to n. So once the server sees n+1, nothing older needs an answer, and old copies can be ignored.",
+    },
+    {
+      q: "A server keys its duplicate table by request number only, not by client. What goes wrong?",
+      options: [
+        "Nothing, numbers are unique",
+        "Two clients both send request 1, and the second one gets the first one's answer instead of having its own done",
+        "The table grows without limit",
+        "Replies get lost",
+      ],
+      answer: 1,
+      explain: "Request numbers are only unique per client. Client 2's first request looks like a repeat of client 1's, so its work is skipped and it gets someone else's result.",
+    },
+    {
+      q: "Random testing passes, but the model checker finds a failure. What does that usually mean?",
+      options: [
+        "The model checker is too strict",
+        "The bug needs a specific, rare ordering of messages that random runs didn't happen to hit",
+        "The code has a syntax error",
+        "The network settings are different",
+      ],
+      answer: 1,
+      explain: "The checker tries every ordering, shortest first. Bugs that need, say, a very old duplicate arriving at exactly the wrong moment are rare in random runs but certain in an exhaustive search.",
+    },
+  ],
+  "b3-primary-backup": [
+    {
+      q: "Why must the primary wait for the backup's confirmation before replying to the client?",
+      options: [
+        "To make replies faster",
+        "So that anything a client was told about survives if the primary crashes",
+        "So the backup can reply instead",
+        "To balance load between servers",
+      ],
+      answer: 1,
+      explain: "If the primary replies first and then crashes, the backup takes over without that change. The client was told it happened, but it's gone.",
+    },
+    {
+      q: "Why does the duplicate table have to be copied to the backup, not just the data?",
+      options: [
+        "It's needed for reads",
+        "After a failover, a client's retry of an already-applied request would otherwise be applied again",
+        "To save memory on the primary",
+        "The view server reads it",
+      ],
+      answer: 1,
+      explain: "A client whose reply was lost retries against the new primary. Without the old duplicate table, the new primary can't tell it's a repeat and does it twice.",
+    },
+    {
+      q: "Why not let two servers decide between themselves which one is primary?",
+      options: [
+        "It would be too slow",
+        "If they lose contact, each may decide it's in charge, and both accept different writes",
+        "Servers can't send messages to each other",
+        "It needs more than two servers",
+      ],
+      answer: 1,
+      explain: "A server can't tell a dead peer from an unreachable one. Two servers each deciding alone can end up as two primaries: split brain. A single referee avoids that.",
+    },
+    {
+      q: "The view server won't change views until the primary acknowledges the current view. What does this prevent?",
+      options: [
+        "Too many view changes",
+        "Promoting a backup that was never brought up to date",
+        "Clients talking to the wrong server",
+        "Lost pings",
+      ],
+      answer: 1,
+      explain: "The primary only acknowledges once its backup has a full copy. Without the rule, the view server could promote a backup that's still empty.",
+    },
+    {
+      q: "A server restarts after a crash and gets an old, delayed view message saying it's the primary. What should it do?",
+      options: [
+        "Start serving clients",
+        "Refuse to act as primary until it has a copy of the data",
+        "Copy data to the backup",
+        "Delete the view server's state",
+      ],
+      answer: 1,
+      explain: "It restarted empty. Serving clients would hand out answers based on no data. It should treat itself as unsynced until a state transfer gives it real data.",
+    },
+  ],
+  "b4-paxos": [
+    {
+      q: "When exactly is a value chosen in Paxos?",
+      options: [
+        "When the proposer decides it",
+        "When a majority of acceptors accept it in the same ballot",
+        "When every acceptor has accepted it",
+        "When the first acceptor accepts it",
+      ],
+      answer: 1,
+      explain: "The decision is made at the acceptors. Once a majority accept in one ballot, the value is fixed, even if no proposer has heard yet.",
+    },
+    {
+      q: "Why must a proposer use the value from the highest-ballot accepted value in its promises?",
+      options: [
+        "It's the most popular value",
+        "That value may already be chosen, and proposing anything else could choose a second value",
+        "Higher ballots are always correct",
+        "To finish faster",
+      ],
+      answer: 1,
+      explain: "Any two majorities overlap, so if a value was chosen earlier, at least one promise reports it. Proposing it keeps every later ballot consistent with that earlier decision.",
+    },
+    {
+      q: "With three acceptors, why does any prepare majority learn about a value chosen earlier?",
+      options: [
+        "Acceptors broadcast every decision",
+        "Any two groups of two out of three share at least one acceptor",
+        "Proposers keep a log",
+        "The network delivers everything eventually",
+      ],
+      answer: 1,
+      explain: "Two majorities of three must overlap in at least one acceptor. That acceptor accepted the chosen value and reports it in its promise.",
+    },
+    {
+      q: "A proposer counts every accepted message it receives toward its majority. What breaks?",
+      options: [
+        "Nothing",
+        "One acceptor's message delivered twice looks like a majority, so it decides a value that wasn't chosen",
+        "It decides too slowly",
+        "Ballots stop being unique",
+      ],
+      answer: 1,
+      explain: "The network can repeat messages. A majority has to be distinct acceptors, so the proposer must count who replied, not how many replies arrived.",
+    },
+    {
+      q: "Two proposers keep pre-empting each other's ballots and nothing is ever chosen. Is that a safety bug?",
+      options: [
+        "Yes, two values could be chosen",
+        "No, it's a liveness problem: nothing wrong is decided, it just never finishes",
+        "Yes, acceptors lose their state",
+        "No, it can't happen in Paxos",
+      ],
+      answer: 1,
+      explain: "Duelling proposers never cause a wrong decision, only no decision. Random back-off or a single leader makes progress likely in practice.",
+    },
+  ],
 };

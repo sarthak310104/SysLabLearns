@@ -8,3 +8,4 @@ next-env.d.ts
 .DS_Store
 .vercel
 public/engine-worker.js
+public/protocol-worker.js

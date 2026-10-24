@@ -6,7 +6,7 @@ import type { GoalUpdate } from "@/components/lab/Lab";
 
 export interface LessonState {
   slug: string;
-  goals: Goal[];
+  goals: Pick<Goal, "id" | "text" | "hint">[];
   status: Record<string, GoalUpdate>;
 }
 

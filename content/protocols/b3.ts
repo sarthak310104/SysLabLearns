@@ -165,13 +165,13 @@ export const B3_STARTER = `// Primary-backup replication.
 // { type: "reply", seq, error: "not primary" }. cmd is { op: "append", key, value }
 // and result is the key's whole value after appending.
 //
-// This version handles views and requests, but the backup never hears about
-// anything. Watch what happens when the primary crashes.
+// This version handles views, and it has duplicate detection from B2, but the
+// backup never hears about anything. Watch what happens when the primary crashes.
 
 export const server = {
   init(ctx) {
     ctx.setTimer("ping", ${PING_MS});
-    return { view: { num: 0, primary: null, backup: null }, readyView: 0, data: {} };
+    return { view: { num: 0, primary: null, backup: null }, readyView: 0, data: {}, last: {} };
   },
 
   onTimer(state, timer, ctx) {
@@ -194,10 +194,18 @@ export const server = {
         ctx.send(from, { type: "reply", seq: msg.seq, error: "not primary" });
         return;
       }
-      // TODO: forward to the backup and wait for it to confirm before answering.
-      // TODO: clients retry, so the same request can arrive more than once.
+      // Duplicate detection, as in B2: one entry per client.
+      const prev = state.last[msg.client];
+      if (prev && prev.seq === msg.seq) {
+        ctx.send(from, { type: "reply", seq: msg.seq, result: prev.result });
+        return;
+      }
+      if (prev && prev.seq > msg.seq) return;
+
+      // TODO: forward to the backup and wait for it to confirm before applying and answering.
       const { key, value } = msg.cmd;
       state.data[key] = (state.data[key] ?? "") + value;
+      state.last[msg.client] = { seq: msg.seq, result: state.data[key] };
       ctx.send(from, { type: "reply", seq: msg.seq, result: state.data[key] });
     }
   },

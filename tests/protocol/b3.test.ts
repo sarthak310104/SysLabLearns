@@ -22,9 +22,11 @@ describe("B3 primary-backup", () => {
     const r = simulate(runtime(B3_SOLUTION), CRASHY);
     expect(r.failure).toBeNull();
   });
-  it("the starter fails (duplicates applied twice)", () => {
-    const r = simulate(runtime(B3_STARTER), LOSSY);
+  it("the starter passes without crashes and loses data with them", () => {
+    expect(simulate(runtime(B3_STARTER), LOSSY).failure).toBeNull();
+    const r = simulate(runtime(B3_STARTER), CRASHY);
     expect(r.ok).toBe(false);
+    expect(r.failure!.message).toMatch(/missing/);
   });
   it("skipping state transfer passes without crashes but fails with them", () => {
     expect(simulate(runtime(B3_NO_SYNC), LOSSY).failure).toBeNull();

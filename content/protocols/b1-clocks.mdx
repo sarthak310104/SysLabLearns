@@ -1,0 +1,62 @@
+From here on you write the code. Each protocol lesson gives you a starter on the right that almost works. You fix it, run it, and let the lab try to break it. This first one is short, and it's about a question every distributed system has to answer: in what order did things happen?
+
+## No shared clock
+
+On one machine, "which came first" is easy: read the clock. Across machines it isn't. Every computer's clock drifts a little, they get corrected at different moments, and a message can take anywhere from a fraction of a millisecond to whole seconds to arrive. If server A stamps an event at 10:00:00.003 and server B stamps one at 10:00:00.001, you can't conclude B's came first. The clocks might just disagree by 5 ms.
+
+So instead of asking what time something happened, we ask a weaker question that we *can* answer: could one event have influenced the other?
+
+## Happened before
+
+Event **a happened before b** if one of these is true:
+
+- They're on the same process and a came first.
+- a is sending a message and b is receiving that same message.
+- There's a chain: a happened before c, and c happened before b.
+
+If neither happened before the other, the two events are **concurrent**. That doesn't mean they happened at the same instant. It means neither could have known about the other, so no ordering between them is "the real one".
+
+## Lamport clocks
+
+A Lamport clock is one counter per process, with three rules:
+
+1. Before any event, add one to your counter. That's the event's timestamp.
+2. When you send, attach your counter to the message.
+3. When you receive, set your counter to the larger of yours and the one in the message, then add one.
+
+Rule 3 is the whole trick. It makes sure a receive is always stamped later than the send that caused it, and chains of messages carry that forward. The result: **if a happened before b, then L(a) is less than L(b).**
+
+The reverse isn't true. A smaller Lamport time doesn't mean an event came first; the two could be concurrent. Lamport clocks give you an ordering that never contradicts causality, which is enough to break ties consistently (sort by time, then by process id), but they can't tell you whether two events are related.
+
+## Vector clocks
+
+A vector clock fixes that by keeping one counter *per process* on every process. Process p1's vector might be `{ p1: 4, p2: 2, p3: 0 }`: p1 has seen four of its own events, the first two of p2's, and none of p3's.
+
+1. Before any event, add one to your own entry.
+2. When you send, attach your whole vector.
+3. When you receive, take the larger of each entry, yours or the message's, then add one to your own entry.
+
+Compare two vectors entry by entry. If every entry of V(a) is at most the matching entry of V(b), and they aren't equal, then a happened before b. If some entries are bigger on each side, the events are concurrent. Now the test works both ways: **a happened before b exactly when V(a) is less than V(b).**
+
+The price is size. A vector has one entry per process, which is fine for three processes and a problem for ten thousand. Real systems use them for small groups of replicas, for example to spot two conflicting writes to the same key.
+
+<Note>
+Vector clocks are what let a database say "these two edits to your shopping cart were made without seeing each other, so they need merging" instead of silently keeping whichever arrived last.
+</Note>
+
+## The lab
+
+The lab runs three processes that do local work and send each other messages at random, with random delays. At every event it calls your `lamport` and `vector` functions and records the timestamps you return. Behind the scenes it keeps the true happens-before relation and compares.
+
+The starter's Lamport clock forgets rule 3: it ignores the stamp in the message. Its vector clock isn't written yet. Press **Run** to watch a run, click a process to see its state, then **Check** to run the stages.
+
+<Goals />
+
+## What to remember
+
+- Physical clocks can't order events across machines. Causality can.
+- Lamport clocks: if a happened before b, L(a) is less than L(b). Not the other way round.
+- Vector clocks capture happens-before exactly, at the cost of one entry per process.
+- Concurrent doesn't mean simultaneous. It means neither could have known about the other.
+
+<Quiz />

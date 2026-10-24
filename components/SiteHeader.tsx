@@ -32,10 +32,11 @@ function ThemeToggle() {
         } catch {}
         setTheme(next);
       }}
-      className="text-sm text-muted hover:text-text px-2 py-1 rounded-md"
+      className="text-sm text-muted hover:text-text px-1.5 sm:px-2 py-1 rounded-md whitespace-nowrap"
       aria-label={`Switch to ${next} theme`}
     >
-      {theme === "dark" ? "Light theme" : "Dark theme"}
+      {theme === "dark" ? "Light" : "Dark"}
+      <span className="hidden sm:inline"> theme</span>
     </button>
   );
 }
@@ -48,7 +49,7 @@ const NAV = [
 export function SiteHeader() {
   const path = usePathname();
   return (
-    <header className="h-12 shrink-0 border-b border-line bg-panel flex items-center gap-6 px-4 shadow-[0_1px_0_color-mix(in_srgb,var(--accent)_35%,transparent)]">
+    <header className="h-12 shrink-0 border-b border-line bg-panel flex items-center gap-3 sm:gap-6 px-3 sm:px-4 min-w-0 shadow-[0_1px_0_color-mix(in_srgb,var(--accent)_35%,transparent)]">
       <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
         <Logo />
         SysLabLearns

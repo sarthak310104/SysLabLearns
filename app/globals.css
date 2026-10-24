@@ -205,3 +205,38 @@ body {
     display: none;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Protocol workbench                                                  */
+/* ------------------------------------------------------------------ */
+.ctl {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  border-radius: 6px;
+  padding: 2px 8px;
+  min-height: 26px;
+}
+.ctl:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.ctl:disabled,
+.btn-accent:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btn-accent {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+.btn-accent:hover:not(:disabled) {
+  box-shadow: var(--glow-soft);
+}
+.neon-line,
+.msg-dot {
+  filter: drop-shadow(0 0 3px var(--accent));
+}
+:root[data-theme="light"] .neon-line,
+:root[data-theme="light"] .msg-dot {
+  filter: none;
+}

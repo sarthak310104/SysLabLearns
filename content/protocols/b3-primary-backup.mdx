@@ -1,0 +1,55 @@
+Your exactly-once server from B2 has one weakness left: it's one server. When it crashes, the data is gone. The simplest fix is to keep a second copy on another machine. This lab is about keeping that copy correct while servers crash and come back.
+
+## Primary and backup
+
+One server is the **primary**. Clients only talk to it. A second server, the **backup**, keeps an identical copy of everything. When the primary dies, the backup takes over with all the data, and clients carry on.
+
+For that promise to hold, the backup must have every change the primary has told a client about. So the primary:
+
+1. receives a request;
+2. forwards it to the backup;
+3. waits for the backup to confirm it has applied it;
+4. only then applies it itself and replies to the client.
+
+If the primary crashes after step 2 but before replying, the backup already has the change. The client retries against the new primary, which finds the request in its duplicate table and sends the saved answer. Nothing is lost and nothing is done twice. That's why the duplicate table has to be replicated too, not just the data.
+
+## Who decides who's primary?
+
+Two servers can't safely decide between themselves. If each one stops hearing the other, both might decide they're in charge, and then two primaries accept different writes: **split brain**.
+
+So a third party decides. The lab gives you a **view server**. Every server pings it every 10 ms. It hands out **views**: a numbered record of who is primary and who is backup, like `{ num: 4, primary: "s2", backup: "s3" }`. When a server misses enough pings, the view server moves to a new view without it, promoting the backup if the primary died and picking a spare server as the new backup.
+
+There's one rule that makes this safe: **the view server won't move on from a view until that view's primary has acknowledged it**, by pinging with the view's number. Until then it keeps the current view, even if servers die. That stops it promoting a backup that was never actually brought up to date.
+
+<Note>
+Real systems usually replace the single view server with a group that agrees using a consensus protocol (you'll build one in B4), so the referee itself isn't a single point of failure. The primary and backup logic stays the same.
+</Note>
+
+## State transfer
+
+When a view adds a new backup, that server starts empty. Maybe it just restarted after a crash, or it was an idle spare. Before the primary can rely on it, the primary must send it a full copy: all the data and the duplicate table. Only when the backup confirms should the primary ping with the new view number.
+
+That ordering is the heart of the lab. Acknowledge the view too early and the view server is free to promote a backup that's missing data.
+
+## Rules for each server
+
+- **Primary**: take client requests, forward each one to the backup, and reply only after the backup confirms. Handle one request at a time; dropping others is fine because clients retry.
+- **Backup**: accept forwarded requests and state transfers only from the current primary for the current view. Reject client requests.
+- **Everyone else**: say "not primary" to clients.
+
+## The lab
+
+There are three servers you write (s1, s2, s3), the view server, and two clients that append letters. The clients ask the view server who's primary and retry until they get a good answer. In the crash stage, the lab crashes servers and later restarts them with empty state, but only while a confirmed backup exists to take over.
+
+The starter tracks views and already has B2's duplicate detection, so it passes the first stage. But it never tells the backup anything. Run it, click the primary, and press **Crash it here**.
+
+<Goals />
+
+## What to remember
+
+- Reply to the client only after the backup has the change.
+- Replicate the duplicate table along with the data, or retries after a failover run twice.
+- A separate referee decides who's primary, so two servers never both think they are.
+- A new backup gets a full copy before the primary acknowledges the view.
+
+<Quiz />

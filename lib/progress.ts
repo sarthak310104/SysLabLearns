@@ -24,7 +24,14 @@ interface DesignRow {
   updatedAt: number;
 }
 
+interface CodeRow {
+  lab: string;
+  code: string;
+  updatedAt: number;
+}
+
 class LabDB extends Dexie {
+  code!: Table<CodeRow, string>;
   goals!: Table<GoalRow, string>;
   designs!: Table<DesignRow, string>;
   quizzes!: Table<QuizRow, string>;
@@ -33,6 +40,7 @@ class LabDB extends Dexie {
     super("syslablearns");
     this.version(1).stores({ goals: "id, lesson", designs: "id, updatedAt" });
     this.version(2).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson" });
+    this.version(3).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab" });
   }
 }
 
@@ -96,5 +104,20 @@ export async function saveQuizScore(lesson: string, score: number, total: number
     if (!db) return;
     const prev = await db.quizzes.get(lesson);
     if (!prev || score > prev.best) await db.quizzes.put({ lesson, best: score, total, updatedAt: Date.now() });
+  } catch {}
+}
+
+/** The learner's code for a protocol lab, or null if they haven't started. */
+export async function loadLabCode(lab: string): Promise<string | null> {
+  try {
+    return (await getDb()?.code.get(lab))?.code ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveLabCode(lab: string, code: string): Promise<void> {
+  try {
+    await getDb()?.code.put({ lab, code, updatedAt: Date.now() });
   } catch {}
 }

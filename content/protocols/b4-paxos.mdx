@@ -1,0 +1,56 @@
+The view server in B3 was one machine making every decision. If it dies, nothing can change. Paxos removes that single point: a group of machines agrees on a value, and the decision survives as long as a majority of them are up. It is famously short to describe and famously easy to get subtly wrong. This lab gives you a version that looks right and lets the model checker show you why it isn't.
+
+## The problem
+
+Several **proposers** each want a value chosen. Here p1 wants "red" and p2 wants "blue". Three **acceptors** vote. The rules for a correct answer:
+
+- **Agreement**: only one value is ever chosen.
+- **Validity**: the chosen value was actually proposed.
+- Eventually, if enough messages get through, everyone learns the choice.
+
+A value is **chosen** the moment a majority of acceptors (two of three) accept it in the same round. Any two majorities share at least one acceptor, and that overlap is what lets later rounds discover what earlier rounds decided.
+
+## Ballots
+
+Proposers work in numbered rounds called **ballots**. Ballot numbers must be unique across proposers. In the lab, ballot = round × 10 + the proposer's number, so p1 uses 11, 21, 31 and p2 uses 12, 22, 32. A higher ballot always wins over a lower one.
+
+## Phase 1: prepare and promise
+
+The proposer sends **prepare(b)** to every acceptor. An acceptor that hasn't promised anything higher replies **promise(b)**, and promises to ignore anything with a lower ballot from now on. Crucially, the promise includes the last value this acceptor accepted, if any, and the ballot it accepted it in.
+
+## Phase 2: accept and accepted
+
+Once a majority has promised, the proposer picks a value and sends **accept(b, v)**. Here is the rule everything depends on:
+
+**If any promise reported an accepted value, the proposer must propose the value from the highest-ballot one among them. Only if none reported anything may it propose its own.**
+
+An acceptor accepts unless it has promised a higher ballot, and replies **accepted(b, v)**. When a proposer hears accepted from a majority of *different* acceptors for its ballot, it knows v is chosen.
+
+## Why the rule matters
+
+Suppose "red" was chosen in ballot 11 by a1 and a2, but p1 crashed before telling anyone. p2 now runs ballot 12. Its prepare reaches a majority, say a2 and a3. a2 is in both majorities, so its promise reports "red, accepted in ballot 11". The rule forces p2 to propose "red" too. p2 may never learn that red was chosen, but it can't overturn it.
+
+Drop the rule and p2 proposes "blue", a2 and a3 accept it, and now two values have been chosen. The starter does exactly that. It also has a second bug, in how it counts accepted replies. Remember that the network can deliver the same message twice.
+
+<Note>
+Paxos here decides one value. Real systems run it over and over to agree on a log of commands, one slot at a time, with a stable leader to skip phase 1 most of the time. That's Multi-Paxos, and Raft is a carefully structured version of the same idea. Both come in Phase 4.
+</Note>
+
+## Livelock
+
+Two proposers can keep pre-empting each other forever: p1 prepares 11, p2 prepares 12 before p1's accepts land, p1 retries with 21, and so on. Paxos stays safe while this happens; it just doesn't finish. The starter retries after a random delay, which breaks the tie in practice. Real systems elect a single leader for the same reason.
+
+## The lab
+
+Write `proposer` and `acceptor`. Each proposer gets one command, `{ op: "propose", value }`, and calls `ctx.reply(value)` with whatever value was chosen, even if it isn't its own. The random runs often pass the starter. The model checker won't.
+
+<Goals />
+
+## What to remember
+
+- A value is chosen once a majority accepts it in one ballot, whether or not anyone has noticed yet.
+- Any two majorities overlap, so a later prepare always hears about a chosen value.
+- Propose the highest-ballot value reported in the promises; only use your own if none was reported.
+- Count distinct acceptors, not messages: the network repeats things.
+
+<Quiz />

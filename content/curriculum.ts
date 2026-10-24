@@ -2,6 +2,7 @@ import { A1, A2, A3 } from "./system-design/presets";
 import { A4, A5, A6, A7, A8 } from "./system-design/presets2";
 import { A9, A10, A11, A12 } from "./system-design/presets3";
 import type { Preset } from "@/lib/goals";
+import { labBySlug, type ProtocolLab } from "./protocols";
 
 export interface Module {
   code: string;
@@ -10,6 +11,8 @@ export interface Module {
   breaks: string;
   slug?: string;
   preset?: Preset;
+  /** Protocol modules: the coding lab, whose stages are the goals. */
+  lab?: ProtocolLab;
   /** Shown instead of a link while the module isn't built yet. */
   comingIn?: string;
 }
@@ -46,10 +49,10 @@ export const TRACKS: Track[] = [
     title: "Distributed protocols",
     blurb: "Write the code inside each box, then let a checker hunt for the order of events that breaks it.",
     modules: [
-      { code: "B1", title: "Time and ordering", breaks: "Clocks drift and two events swap order.", comingIn: "Phase 3" },
-      { code: "B2", title: "Exactly-once RPC", breaks: "A retried request runs twice.", comingIn: "Phase 3" },
-      { code: "B3", title: "Primary-backup", breaks: "Split brain: two servers both think they are in charge.", comingIn: "Phase 3" },
-      { code: "B4", title: "Paxos", breaks: "A leader skips one check and two values get chosen.", comingIn: "Phase 3" },
+      { code: "B1", title: "Time and ordering", breaks: "Clocks drift and two events swap order.", slug: "b1-clocks", lab: labBySlug("b1-clocks") },
+      { code: "B2", title: "Exactly-once RPC", breaks: "A retried request runs twice.", slug: "b2-rpc", lab: labBySlug("b2-rpc") },
+      { code: "B3", title: "Primary-backup", breaks: "The primary crashes and the backup takes over without the latest writes.", slug: "b3-primary-backup", lab: labBySlug("b3-primary-backup") },
+      { code: "B4", title: "Paxos", breaks: "A leader skips one check and two values get chosen.", slug: "b4-paxos", lab: labBySlug("b4-paxos") },
       { code: "B5", title: "Raft", breaks: "An entry from an old term gets committed, then lost.", comingIn: "Phase 4" },
       { code: "B6", title: "Sharded key-value store", breaks: "During a handoff, two groups both serve the same key.", comingIn: "Phase 4" },
       { code: "B7", title: "Two-phase commit", breaks: "The coordinator crashes mid-commit and everyone waits.", comingIn: "Phase 4" },
@@ -59,6 +62,18 @@ export const TRACKS: Track[] = [
 ];
 
 export const LESSONS = TRACKS.flatMap((t) => t.modules).filter((m): m is Module & { slug: string; preset: Preset } => Boolean(m.slug && m.preset));
+
+export const PROTOCOL_LESSONS = TRACKS.flatMap((t) => t.modules).filter((m): m is Module & { slug: string; lab: ProtocolLab } => Boolean(m.slug && m.lab));
+
+export function protocolLessonBySlug(slug: string) {
+  const i = PROTOCOL_LESSONS.findIndex((l) => l.slug === slug);
+  return i < 0 ? null : { lesson: PROTOCOL_LESSONS[i], prev: PROTOCOL_LESSONS[i - 1] ?? null, next: PROTOCOL_LESSONS[i + 1] ?? null };
+}
+
+/** The goals (or stages) a module tracks, as ids. */
+export function moduleGoalIds(m: Module): string[] {
+  return m.preset?.goals.map((g) => g.id) ?? m.lab?.stages.map((s) => s.id) ?? [];
+}
 
 export function lessonBySlug(slug: string) {
   const i = LESSONS.findIndex((l) => l.slug === slug);

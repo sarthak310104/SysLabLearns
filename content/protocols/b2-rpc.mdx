@@ -1,0 +1,61 @@
+A remote procedure call looks like a function call: send a request, get a result. The difference is everything that can happen in between. This lab is about making one simple operation, appending to a string, behave correctly when the network loses and repeats messages.
+
+## What the network does to you
+
+Assume a network that can:
+
+- **lose** a message, so it never arrives;
+- **duplicate** a message, so it arrives twice;
+- **delay** a message by any amount, so messages overtake each other.
+
+It never corrupts or invents messages. That's a fair model of real networks once checksums and connection handling are done. Timeouts and retransmits in TCP hide some of this inside one connection, but connections break, clients reconnect, and then your application sees exactly these problems.
+
+## The client's dilemma
+
+The client sends "append x" and hears nothing. Either the request was lost, or the server did the work and the reply was lost. From the client's side these look identical.
+
+- If it **doesn't retry**, a lost request means the work never happens. That's **at-most-once**.
+- If it **retries**, a lost reply means the server does the work twice. That's **at-least-once**.
+
+For reading a value, at-least-once is fine: reading twice hurts nobody. Operations like that are **idempotent**. Appending isn't: "abc" plus a repeated append of "d" gives "abcdd".
+
+## Exactly once
+
+We want the effect of exactly-once: every command applied once, even though the client may send it many times. The recipe has two halves.
+
+**The client** numbers its requests: 1, 2, 3. It keeps resending the current one on a timer until a reply with that number arrives, then moves on. It only has one request outstanding at a time.
+
+**The server** remembers, for each client, the highest request number it has done and the result it gave. When a request arrives:
+
+- if it's the next new number, do it, save the result, and reply;
+- if it's the number it just did, don't do it again, just resend the saved result;
+- if it's older than that, it's a stale copy that wandered around the network. Ignore it.
+
+That table is called a **duplicate table** (or reply cache). Because each client has one request in flight, the server only needs to remember one entry per client, not every request ever.
+
+<Note>
+Payment APIs ask you for an "idempotency key" with every charge for exactly this reason: if your retry reaches them twice, they recognise the key and don't charge the card again.
+</Note>
+
+## Random runs versus every ordering
+
+The first two stages run your code many times with random losses, duplicates and delays. That finds most bugs fast. The third stage is different: it's a **model checker**. It starts from the beginning and tries *every* possible thing that could happen next, then every thing after that, and so on, remembering states it has already seen. In this search the network may deliver any message at any time, as many times as it likes, or never.
+
+Because it searches the shortest sequences first, when it finds a bug the trace it shows you is the shortest way to cause it. Bugs that need one rare ordering, which random testing might hit once in a million runs, show up in seconds.
+
+## The lab
+
+Two clients each append a few letters to their own key on one server. Each client calls `ctx.reply(result)` when its current command is done, and the lab checks that every result is exactly the letters appended so far.
+
+The starter sends each request once and the server does whatever it receives. Run it with **Perfect network** ticked and it's fine. Untick it.
+
+<Goals />
+
+## What to remember
+
+- A missing reply doesn't tell you whether the work happened.
+- Retries give at-least-once; retries plus duplicate detection give the effect of exactly-once.
+- Number requests per client, keep one outstanding, and have the server remember the last result for each client.
+- Random testing finds common bugs; a model checker finds the rare orderings and gives you the shortest trace.
+
+<Quiz />

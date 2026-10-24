@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { TRACKS, type Module } from "@/content/curriculum";
+import { moduleGoalIds, TRACKS, type Module } from "@/content/curriculum";
 import { CHALLENGES } from "@/content/challenges";
 import { fmtDollars } from "@/lib/cost";
 import { loadCompletedGoals, loadQuizScores } from "@/lib/progress";
@@ -21,6 +21,7 @@ type Scores = Record<string, { best: number; total: number }>;
 
 function ModuleRow({ m, completed, isNext, scores }: { m: Module; completed: Set<string>; isNext: boolean; scores: Scores }) {
   const quiz = m.slug ? scores[m.slug] : undefined;
+  const ids = moduleGoalIds(m);
   const body = (
     <>
       <span className={`num text-[13px] w-7 shrink-0 pt-0.5 ${m.slug ? "text-signal" : "text-muted"}`}>{m.code}</span>
@@ -29,9 +30,9 @@ function ModuleRow({ m, completed, isNext, scores }: { m: Module; completed: Set
         <span className="block text-[13px] text-muted mt-0.5">{m.breaks}</span>
       </span>
       <span className="shrink-0 pt-1 text-[12px] text-muted">
-        {m.preset && m.slug ? (
+        {m.slug && ids.length ? (
           <span className="flex flex-col items-end gap-1">
-            <Progress done={m.preset.goals.filter((g) => completed.has(`${m.slug}/${g.id}`)).length} total={m.preset.goals.length} />
+            <Progress done={ids.filter((id) => completed.has(`${m.slug}/${id}`)).length} total={ids.length} />
             {quiz && (
               <span className="num">
                 Quiz {quiz.best}/{quiz.total}
@@ -66,7 +67,7 @@ export function Roadmap() {
   }, []);
 
   const firstUnfinished = TRACKS.flatMap((t) => t.modules).find(
-    (m) => m.slug && m.preset && m.preset.goals.some((g) => !completed.has(`${m.slug}/${g.id}`)),
+    (m) => m.slug && moduleGoalIds(m).some((id) => !completed.has(`${m.slug}/${id}`)),
   );
 
   return (

@@ -218,6 +218,7 @@ export function modelCheck(rt: Runtime, opts: CheckOptions = {}): CheckResult {
         }
         if (!reachedDone && rt.done(child)) reachedDone = true;
         next.push({ w: child, key: ck });
+        if (states % 5000 === 0) opts.onProgress?.(states, depth);
         if (states >= maxStates || Date.now() > deadline) {
           return { ok: true, states, depth, complete: false, reachedDone, failure: null };
         }
