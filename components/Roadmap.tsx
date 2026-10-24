@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { TRACKS, type Module } from "@/content/curriculum";
+import { CHALLENGES } from "@/content/challenges";
+import { fmtDollars } from "@/lib/cost";
 import { loadCompletedGoals, loadQuizScores } from "@/lib/progress";
 
 function Progress({ done, total }: { done: number; total: number }) {
@@ -68,6 +70,7 @@ export function Roadmap() {
   );
 
   return (
+    <>
     <div className="grid gap-8 lg:grid-cols-2">
       {TRACKS.map((t) => (
         <section key={t.id} aria-labelledby={`track-${t.id}`}>
@@ -83,5 +86,35 @@ export function Roadmap() {
         </section>
       ))}
     </div>
+    <section className="mt-12" aria-labelledby="challenges">
+      <h2 id="challenges" className="text-xl font-semibold tracking-tight">
+        Design challenges
+      </h2>
+      <p className="text-muted mt-1 mb-4 max-w-[60ch]">
+        A brief, a budget and an empty canvas. Use anything from the system design track, and prove your design survives losing a server.
+      </p>
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {CHALLENGES.map((c) => {
+          const passed = completed.has(`${c.slug}/pass`);
+          const resilient = completed.has(`${c.slug}/resilient`);
+          return (
+            <li key={c.slug}>
+              <Link href={`/challenges/${c.slug}/`} className="block h-full rounded-lg border border-line bg-panel hover:bg-panel-2 px-4 py-3">
+                <span className="flex items-baseline gap-3">
+                  <span className="num text-[13px] text-signal">{c.code}</span>
+                  <span className="font-medium flex-1">{c.title}</span>
+                  <span className="num text-[12px] text-muted">{fmtDollars(c.budget)}/mo</span>
+                </span>
+                <span className="block text-[13px] text-muted mt-1">{c.summary}</span>
+                <span className="block text-[12px] mt-2">
+                  {passed ? (resilient ? <span className="text-signal">Passed, and survives a crash</span> : <span className="text-signal">Passed</span>) : <span className="text-muted">Not passed yet</span>}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+    </>
   );
 }

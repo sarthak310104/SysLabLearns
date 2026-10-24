@@ -17,7 +17,7 @@ import {
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { canConnect, defaultConfig, KIND_LABEL, withDefaults } from "@/engine/model/defaults";
-import type { AnyConfig, ComponentKind, Graph } from "@/engine/model/types";
+import type { AnyConfig, ComponentKind, Graph, Snapshot } from "@/engine/model/types";
 import { GoalTracker, type Goal } from "@/lib/goals";
 import { useSimulation } from "@/lib/useSimulation";
 import { FlightEdge } from "./FlightEdge";
@@ -45,6 +45,8 @@ export interface LabProps {
   completedGoals?: Set<string>;
   onGoalUpdate?: (goalId: string, u: GoalUpdate) => void;
   onGraphChange?: (g: Graph) => void;
+  /** Called with every snapshot, for pages that show live status outside the lab. */
+  onSnapshot?: (snap: Snapshot, graph: Graph) => void;
   seed?: number;
 }
 
@@ -94,6 +96,7 @@ function LabInner(props: LabProps) {
   const sentRef = useRef(new Map<string, number>());
   useEffect(() => {
     const snap = sim.snapshot;
+    if (snap) props.onSnapshot?.(snap, graph);
     if (!snap || !tracker.current) return;
     for (const [id, p] of tracker.current.update(snap, graph)) {
       // Only report meaningful changes, so the lesson column doesn't re-render 10 times a second.
