@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import type { AnyConfig, ComponentKind, FaultAction, Incident, NodeStats, Region, Snapshot } from "@/engine/model/types";
+import type { Graph, AnyConfig, ComponentKind, FaultAction, Incident, NodeStats, Region, Snapshot } from "@/engine/model/types";
 import { REGION_LABEL } from "@/engine/model/defaults";
 import type { HistoryPoint } from "@/lib/useSimulation";
 import { CONTROLS, type Control } from "./controls";
 import { fmtMs, fmtPct, fmtRate, fmtTime } from "./format";
 import { Glyph } from "./glyphs";
+import { explainNode } from "@/lib/explain";
 import { ON_AWS } from "@/engine/model/defaults";
 import { Sparkline } from "./Sparkline";
 import type { LabFlowNode } from "./LabNode";
@@ -184,6 +185,8 @@ export interface InspectorProps {
   onFault: (a: FaultAction) => void;
   onDelete: (id: string) => void;
   onDeleteLink: (id: string) => void;
+  /** The whole design, for the plain-words explanation. */
+  graph?: Graph;
 }
 
 function LinkPanel({ link, p }: { link: SelectedLink; p: InspectorProps }) {
@@ -273,6 +276,16 @@ export function Inspector(p: InspectorProps) {
             <Stat label="p99" value={fmtMs(s.p99)} />
           </div>
           <NodeCharts history={p.history.get(sel.id) ?? []} />
+        </div>
+      )}
+      {s && p.graph && (
+        <div className={section}>
+          <h2 className="font-medium mb-1">What&apos;s happening here</h2>
+          <div className="space-y-1.5 text-[13px] text-muted">
+            {explainNode(p.graph, p.snapshot, sel.id).map((t, i) => (
+              <p key={i}>{t}</p>
+            ))}
+          </div>
         </div>
       )}
       <div className={section}>

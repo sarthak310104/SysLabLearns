@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ComponentKind, Snapshot } from "@/engine/model/types";
+import type { ComponentKind, Graph, Snapshot } from "@/engine/model/types";
+import { explainSystem } from "@/lib/explain";
 import { findings, HEALTH_COLOR, verdictOf, type Verdict } from "@/lib/health";
 
 const VERDICT: Record<Verdict, { title: string; color: string; blurb: string }> = {
@@ -29,7 +30,9 @@ export function HealthPanel({
   onSelect,
   defaultOpen = true,
   canAdd,
+  graph,
 }: {
+  graph?: Graph;
   canAdd?: ComponentKind[];
   defaultOpen?: boolean;
   snapshot: Snapshot | null;
@@ -38,6 +41,7 @@ export function HealthPanel({
   onSelect: (id: string) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [explain, setExplain] = useState(false);
   // On a phone the panel would cover the diagram, so it starts closed there.
   useEffect(() => {
     if (defaultOpen && window.innerWidth < 1024) setOpen(false);
@@ -53,7 +57,7 @@ export function HealthPanel({
   const v = VERDICT[verdict];
 
   return (
-    <div className="absolute top-3 right-3 z-10 w-[280px] max-w-[calc(100%-1.5rem)] rounded-lg border border-line bg-panel/95 backdrop-blur text-[12px] shadow-lg">
+    <div className="absolute top-3 right-3 z-10 w-[280px] max-w-[calc(100%-1.5rem)] max-h-[calc(100%-1.5rem)] overflow-y-auto rounded-lg border border-line bg-panel/95 backdrop-blur text-[12px] shadow-lg">
       <button className="w-full flex items-center gap-2 px-3 py-2 text-left" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: v.color, boxShadow: verdict === "idle" ? undefined : `0 0 8px ${v.color}` }} />
         <span className="font-semibold text-[13px]">{v.title}</span>
@@ -74,6 +78,21 @@ export function HealthPanel({
                 </li>
               ))}
             </ul>
+          )}
+          {graph && (
+            <div className="mt-2">
+              <button className="text-accent text-[12px]" onClick={() => setExplain((e) => !e)} aria-expanded={explain}>
+                {explain ? "Hide the explanation" : "Explain what's happening"}
+              </button>
+              {explain && (
+                <div className="mt-1.5 space-y-1.5 text-text/90 max-h-56 overflow-y-auto">
+                  {explainSystem(graph, snapshot).map((t, i) => (
+                    <p key={i}>{t}</p>
+                  ))}
+                  <p className="text-muted">Click any component for what's happening inside it.</p>
+                </div>
+              )}
+            </div>
           )}
           <div className="mt-3 pt-2 border-t border-line grid grid-cols-2 gap-x-3 gap-y-1" aria-label="Color key">
             {LEGEND.map(([c, label]) => (

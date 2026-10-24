@@ -112,7 +112,10 @@ export function findings(
     if (s.kind === "server" || s.kind === "database" || s.kind === "replica") {
       const u = s.utilization;
       const qf = s.queueLimit ? s.queue / s.queueLimit : 0;
-      if (s.errorRate > 0.05 || qf > 0.8) {
+      const victim = s.kind === "server" && u > 0.8 && s.workUtilization < u * 0.6;
+      if ((s.errorRate > 0.05 || qf > 0.8) && victim) {
+        out.push({ health: "failing", nodeId: s.id, text: `${n} is full, but its workers are mostly waiting on what it calls, not working. Fix the slower component behind it first; more workers here would just wait too.` });
+      } else if (s.errorRate > 0.05 || qf > 0.8) {
         let fix: string;
         if (s.kind === "server") {
           fix = addable.has("server") && present.has("loadBalancer") ? "Give it more workers, or add servers behind the load balancer." : "Select it and give it more workers.";

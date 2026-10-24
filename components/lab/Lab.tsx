@@ -277,6 +277,7 @@ function LabInner(props: LabProps) {
         kinds={kinds}
         defaultOpen={wide}
         canAdd={props.palette}
+        graph={graph}
         onSelect={(id) => {
           setSelectedId(id);
           setSelectedEdgeId(null);
@@ -287,6 +288,7 @@ function LabInner(props: LabProps) {
 
   const inspector = (
     <Inspector
+      graph={graph}
       selected={selected}
       selectedLink={selectedLink}
       snapshot={sim.snapshot}

@@ -43,3 +43,11 @@ describe("health colors and verdict", () => {
     expect(verdictOf({ db }, fixed)).toBe("failing");
   });
 });
+
+describe("victims versus causes", () => {
+  it("doesn't tell you to scale a server that's only waiting", () => {
+    const api = base({ id: "api", status: "critical", errorRate: 0.2, utilization: 1, workUtilization: 0.1, queue: 190, queueLimit: 200 });
+    const f = findings({ api }, { api: "API server" }, { api: "server" }, 0, []);
+    expect(f[0].text).toMatch(/waiting on what it calls/);
+  });
+});
