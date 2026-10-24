@@ -46,6 +46,7 @@ const NAV: { href: string; label: string; wide?: boolean }[] = [
   { href: "/", label: "Roadmap" },
   { href: "/sandbox/", label: "Sandbox" },
   { href: "/review/", label: "Review" },
+  { href: "/progress/", label: "Progress" },
   { href: "/glossary/", label: "Glossary", wide: true },
 ];
 
@@ -58,19 +59,19 @@ export function SiteHeader() {
     return () => clearInterval(t);
   }, [path]);
   return (
-    <header className="h-12 shrink-0 border-b border-line bg-panel flex items-center gap-3 sm:gap-6 px-3 sm:px-4 min-w-0 shadow-[0_1px_0_color-mix(in_srgb,var(--accent)_35%,transparent)]">
+    <header className="h-12 shrink-0 border-b border-line bg-panel flex items-center gap-2 sm:gap-6 px-2.5 sm:px-4 min-w-0 shadow-[0_1px_0_color-mix(in_srgb,var(--accent)_35%,transparent)]">
       <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
         <Logo />
         <span className="hidden sm:inline">SysLabLearns</span>
       </Link>
-      <nav className="flex items-center gap-1 text-sm">
+      <nav className="flex items-center gap-0.5 sm:gap-1 text-sm">
         {NAV.map((n) => {
           const active = n.href === "/" ? path === "/" || path.startsWith("/learn") : path.startsWith(n.href);
           return (
             <Link
               key={n.href}
               href={n.href}
-              className={`${n.wide ? "hidden sm:inline-flex" : "inline-flex"} items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-md ${active ? "bg-panel-2 text-text" : "text-muted hover:text-text"}`}
+              className={`${n.wide ? "hidden sm:inline-flex" : "inline-flex"} items-center gap-1.5 px-1.5 sm:px-2.5 py-1 rounded-md ${active ? "bg-panel-2 text-text" : "text-muted hover:text-text"}`}
             >
               {n.label}
               {n.href === "/review/" && due > 0 && (

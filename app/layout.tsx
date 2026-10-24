@@ -6,6 +6,7 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
+import { ActivityTracker } from "@/components/ActivityTracker";
 
 export const metadata: Metadata = {
   title: "SysLabLearns",
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-dvh flex flex-col">
         <SiteHeader />
+        <ActivityTracker />
         <main className="flex-1 flex flex-col min-h-0">{children}</main>
       </body>
     </html>
