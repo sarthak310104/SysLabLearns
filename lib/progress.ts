@@ -37,7 +37,31 @@ interface AwsRow {
   updatedAt: number;
 }
 
+/** One quiz question in the review deck (Leitner boxes). */
+export interface CardRow {
+  id: string; // `${lesson}#${index}`
+  lesson: string;
+  index: number;
+  /** 0 = just missed; each correct review moves it up a box and further out. */
+  box: number;
+  due: number;
+  reviews: number;
+  lapses: number;
+  lastReviewed: number;
+}
+
+/** What you did on one day, for streaks and time spent. */
+export interface ActivityRow {
+  day: string; // YYYY-MM-DD, local time
+  minutes: number;
+  answers: number;
+  correct: number;
+  goals: number;
+}
+
 class LabDB extends Dexie {
+  cards!: Table<CardRow, string>;
+  activity!: Table<ActivityRow, string>;
   aws!: Table<AwsRow, string>;
   code!: Table<CodeRow, string>;
   goals!: Table<GoalRow, string>;
@@ -50,6 +74,7 @@ class LabDB extends Dexie {
     this.version(2).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson" });
     this.version(3).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab" });
     this.version(4).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab", aws: "id" });
+    this.version(5).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab", aws: "id", cards: "id, lesson, due", activity: "day" });
   }
 }
 
@@ -71,6 +96,8 @@ export async function loadCompletedGoals(): Promise<Set<string>> {
 
 export async function markGoalComplete(lesson: string, goal: string): Promise<void> {
   try {
+    const db = getDb();
+    if (db && !(await db.goals.get(`${lesson}/${goal}`))) await bumpActivity({ goals: 1 });
     await getDb()?.goals.put({ id: `${lesson}/${goal}`, lesson, goal, completedAt: Date.now() });
   } catch {
     /* progress is a convenience; the app works without it */
@@ -202,4 +229,99 @@ export async function importProgress(data: unknown): Promise<number> {
     }
   });
   return n;
+}
+
+/* ------------------------------------------------------------------ */
+/* Spaced review                                                       */
+/* ------------------------------------------------------------------ */
+
+const DAY = 86400000;
+/** How long to wait before showing a card again, by box. */
+export const INTERVALS = [10 * 60000, DAY, 3 * DAY, 7 * DAY, 16 * DAY, 35 * DAY];
+
+/** Record an answer, from a lesson quiz or the review page, and reschedule the card. */
+/**
+ * The Leitner rule. A new card starts in box 1 if answered right, box 0 if not.
+ * Wrong always goes back to box 0. Right moves up one box, but only when the
+ * card was due (or this is a review): retaking a lesson quiz early doesn't skip ahead.
+ */
+export function nextBox(prev: Pick<CardRow, "box" | "due"> | undefined, correct: boolean, fromReview: boolean, now: number): number {
+  if (!prev) return correct ? 1 : 0;
+  if (!correct) return 0;
+  if (fromReview || prev.due <= now) return Math.min(INTERVALS.length - 1, prev.box + 1);
+  return prev.box;
+}
+
+/** Cards due now. */
+export async function dueCount(): Promise<number> {
+  try {
+    const db = getDb();
+    if (!db) return 0;
+    return await db.cards.where("due").belowOrEqual(Date.now()).count();
+  } catch {
+    return 0;
+  }
+}
+
+export async function recordAnswer(lesson: string, index: number, correct: boolean, fromReview = false): Promise<void> {
+  try {
+    const db = getDb();
+    if (!db) return;
+    const id = `${lesson}#${index}`;
+    const now = Date.now();
+    const prev = await db.cards.get(id);
+    const box = nextBox(prev, correct, fromReview, now);
+    await db.cards.put({
+      id,
+      lesson,
+      index,
+      box,
+      due: now + INTERVALS[box],
+      reviews: (prev?.reviews ?? 0) + 1,
+      lapses: (prev?.lapses ?? 0) + (correct ? 0 : 1),
+      lastReviewed: now,
+    });
+    await bumpActivity({ answers: 1, correct: correct ? 1 : 0 });
+  } catch {}
+}
+
+export async function loadCards(): Promise<CardRow[]> {
+  try {
+    return (await getDb()?.cards.toArray()) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Activity: streaks and time spent                                    */
+/* ------------------------------------------------------------------ */
+
+export const today = (t = Date.now()) => {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+export async function bumpActivity(add: Partial<Omit<ActivityRow, "day">>): Promise<void> {
+  try {
+    const db = getDb();
+    if (!db) return;
+    const day = today();
+    const row = (await db.activity.get(day)) ?? { day, minutes: 0, answers: 0, correct: 0, goals: 0 };
+    await db.activity.put({
+      day,
+      minutes: row.minutes + (add.minutes ?? 0),
+      answers: row.answers + (add.answers ?? 0),
+      correct: row.correct + (add.correct ?? 0),
+      goals: row.goals + (add.goals ?? 0),
+    });
+  } catch {}
+}
+
+export async function loadActivity(): Promise<ActivityRow[]> {
+  try {
+    return (await getDb()?.activity.toArray()) ?? [];
+  } catch {
+    return [];
+  }
 }

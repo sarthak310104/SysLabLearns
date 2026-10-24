@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { dueCount } from "@/lib/progress";
 
 function Logo() {
   // Three nodes on a wire: the app in one glyph.
@@ -41,14 +42,21 @@ function ThemeToggle() {
   );
 }
 
-const NAV = [
+const NAV: { href: string; label: string; wide?: boolean }[] = [
   { href: "/", label: "Roadmap" },
   { href: "/sandbox/", label: "Sandbox" },
-  { href: "/glossary/", label: "Glossary" },
+  { href: "/review/", label: "Review" },
+  { href: "/glossary/", label: "Glossary", wide: true },
 ];
 
 export function SiteHeader() {
   const path = usePathname();
+  const [due, setDue] = useState(0);
+  useEffect(() => {
+    dueCount().then(setDue);
+    const t = setInterval(() => dueCount().then(setDue), 60000);
+    return () => clearInterval(t);
+  }, [path]);
   return (
     <header className="h-12 shrink-0 border-b border-line bg-panel flex items-center gap-3 sm:gap-6 px-3 sm:px-4 min-w-0 shadow-[0_1px_0_color-mix(in_srgb,var(--accent)_35%,transparent)]">
       <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
@@ -62,9 +70,14 @@ export function SiteHeader() {
             <Link
               key={n.href}
               href={n.href}
-              className={`px-2.5 py-1 rounded-md ${active ? "bg-panel-2 text-text" : "text-muted hover:text-text"}`}
+              className={`${n.wide ? "hidden sm:inline-flex" : "inline-flex"} items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-md ${active ? "bg-panel-2 text-text" : "text-muted hover:text-text"}`}
             >
               {n.label}
+              {n.href === "/review/" && due > 0 && (
+                <span className="num text-[11px] leading-none px-1.5 py-0.5 rounded-full bg-accent text-accent-ink" aria-label={`${due} due`}>
+                  {due > 99 ? "99+" : due}
+                </span>
+              )}
             </Link>
           );
         })}

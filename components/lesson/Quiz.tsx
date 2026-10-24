@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { QUIZZES } from "@/content/quizzes";
-import { saveQuizScore } from "@/lib/progress";
+import { recordAnswer, saveQuizScore } from "@/lib/progress";
 import { useLesson } from "./LessonContext";
 
 /** End-of-lesson check: one question at a time, with the reasoning shown after each answer. */
@@ -70,6 +70,7 @@ export function Quiz() {
                 onClick={() => {
                   setPicked(i);
                   if (i === q.answer) setScore((s) => s + 1);
+                  recordAnswer(lesson.slug, index, i === q.answer);
                 }}
                 className="text-left rounded-md border px-3.5 py-2.5 text-[14px] hover:bg-panel-2 disabled:hover:bg-transparent disabled:cursor-default"
                 style={{ borderColor: border, opacity: answered && !isAnswer && !isPicked ? 0.6 : 1 }}
