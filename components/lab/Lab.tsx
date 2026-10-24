@@ -1,0 +1,287 @@
+"use client";
+
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  MarkerType,
+  ReactFlow,
+  ReactFlowProvider,
+  addEdge,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  type Connection,
+  type Edge,
+  type IsValidConnection,
+} from "@xyflow/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { canConnect, defaultConfig, KIND_LABEL } from "@/engine/model/defaults";
+import type { AnyConfig, ComponentKind, Graph } from "@/engine/model/types";
+import type { Goal } from "@/lib/goals";
+import { useSimulation } from "@/lib/useSimulation";
+import { FlightEdge } from "./FlightEdge";
+import { Inspector } from "./Inspector";
+import { LabNode, type LabFlowNode } from "./LabNode";
+import { SnapshotContext } from "./LabContext";
+import { DRAG_MIME, Palette } from "./Palette";
+import { Toolbar } from "./Toolbar";
+
+const nodeTypes = { lab: LabNode };
+const edgeTypes = { flight: FlightEdge };
+const EDGE_DEFAULTS = { type: "flight", markerEnd: { type: MarkerType.ArrowClosed, color: "var(--muted)" } };
+
+export interface GoalUpdate {
+  fraction: number;
+  done: boolean;
+}
+
+export interface LabProps {
+  graph: Graph;
+  /** Components that can be added. Empty means the layout is fixed. */
+  palette: ComponentKind[];
+  layout: "wide" | "compact";
+  goals?: Goal[];
+  completedGoals?: Set<string>;
+  onGoalUpdate?: (goalId: string, u: GoalUpdate) => void;
+  onGraphChange?: (g: Graph) => void;
+  seed?: number;
+}
+
+function toFlow(graph: Graph): { nodes: LabFlowNode[]; edges: Edge[] } {
+  return {
+    nodes: graph.nodes.map((n) => ({
+      id: n.id,
+      type: "lab",
+      position: n.position,
+      data: { kind: n.kind, label: n.label, config: n.config },
+    })),
+    edges: graph.edges.map((e) => ({ ...EDGE_DEFAULTS, id: e.id, source: e.source, target: e.target })),
+  };
+}
+
+function toGraph(nodes: LabFlowNode[], edges: Edge[]): Graph {
+  return {
+    nodes: nodes.map((n) => ({ id: n.id, kind: n.data.kind, label: n.data.label, config: n.data.config, position: n.position })),
+    edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+  };
+}
+
+let idCounter = 0;
+const newId = (kind: string) => `${kind}-${Date.now().toString(36)}${(idCounter++).toString(36)}`;
+
+function LabInner(props: LabProps) {
+  const initial = useMemo(() => toFlow(props.graph), [props.graph]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<LabFlowNode>(initial.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const rf = useReactFlow<LabFlowNode, Edge>();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const editable = props.palette.length > 0;
+
+  const graph = useMemo(() => toGraph(nodes, edges), [nodes, edges]);
+  const sim = useSimulation(graph, props.seed);
+
+  const { onGraphChange } = props;
+  useEffect(() => {
+    onGraphChange?.(graph);
+  }, [graph, onGraphChange]);
+
+  /* ---------------- goals ---------------- */
+  const goalState = useRef({ start: new Map<string, number>(), mem: new Map<string, Record<string, unknown>>(), sent: new Map<string, number>(), lastTime: 0 });
+  const doneRef = useRef(new Set(props.completedGoals ?? []));
+  useEffect(() => {
+    const snap = sim.snapshot;
+    if (!snap || !props.goals) return;
+    const st = goalState.current;
+    if (snap.time < st.lastTime) {
+      st.start.clear();
+      st.mem.clear();
+    }
+    st.lastTime = snap.time;
+    for (const g of props.goals) {
+      if (doneRef.current.has(g.id)) continue;
+      let mem = st.mem.get(g.id);
+      if (!mem) st.mem.set(g.id, (mem = {}));
+      let ok = false;
+      try {
+        ok = g.check(snap, graph, mem);
+      } catch {
+        ok = false;
+      }
+      let fraction = 0;
+      if (ok) {
+        const start = st.start.get(g.id) ?? snap.time;
+        st.start.set(g.id, start);
+        fraction = g.holdMs ? Math.min(1, (snap.time - start) / g.holdMs) : 1;
+      } else st.start.delete(g.id);
+      const done = fraction >= 1;
+      if (done) doneRef.current.add(g.id);
+      const rounded = Math.round(fraction * 10) / 10;
+      if (st.sent.get(g.id) !== rounded || done) {
+        st.sent.set(g.id, rounded);
+        props.onGoalUpdate?.(g.id, { fraction, done });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sim.snapshot]);
+
+  /* ---------------- editing ---------------- */
+  const kindOf = useCallback((id: string) => nodes.find((n) => n.id === id)?.data.kind, [nodes]);
+
+  const isValidConnection: IsValidConnection = useCallback(
+    (c) => {
+      const a = kindOf(c.source);
+      const b = kindOf(c.target);
+      if (!a || !b || c.source === c.target) return false;
+      if (edges.some((e) => e.source === c.source && e.target === c.target)) return false;
+      return canConnect(a, b);
+    },
+    [kindOf, edges],
+  );
+
+  const onConnect = useCallback(
+    (c: Connection) => setEdges((es) => addEdge({ ...c, ...EDGE_DEFAULTS, id: `e-${c.source}-${c.target}` }, es)),
+    [setEdges],
+  );
+
+  const addNode = useCallback(
+    (kind: ComponentKind, screen?: { x: number; y: number }) => {
+      let pos = screen;
+      if (!pos) {
+        const r = wrapperRef.current?.getBoundingClientRect();
+        pos = r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: 200, y: 200 };
+      }
+      const position = rf.screenToFlowPosition(pos);
+      setNodes((ns) => {
+        const count = ns.filter((n) => n.data.kind === kind).length;
+        const node: LabFlowNode = {
+          id: newId(kind),
+          type: "lab",
+          position: { x: position.x - 88, y: position.y - 40 },
+          data: { kind, label: `${KIND_LABEL[kind]} ${count + 1}`, config: defaultConfig(kind) as AnyConfig },
+          selected: true,
+        };
+        return [...ns.map((n) => ({ ...n, selected: false })), node];
+      });
+    },
+    [rf, setNodes],
+  );
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const kind = e.dataTransfer.getData(DRAG_MIME) as ComponentKind;
+      if (kind && props.palette.includes(kind)) addNode(kind, { x: e.clientX, y: e.clientY });
+    },
+    [addNode, props.palette],
+  );
+
+  const updateData = useCallback(
+    (id: string, patch: Partial<LabFlowNode["data"]>) =>
+      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))),
+    [setNodes],
+  );
+
+  const removeNode = useCallback(
+    (id: string) => {
+      setNodes((ns) => ns.filter((n) => n.id !== id));
+      setEdges((es) => es.filter((e) => e.source !== id && e.target !== id));
+      setSelectedId(null);
+    },
+    [setNodes, setEdges],
+  );
+
+  const selected = nodes.find((n) => n.id === selectedId) ?? null;
+  const labels = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n.data.label])), [nodes]);
+  const wide = props.layout === "wide";
+
+  const canvas = (
+    <div ref={wrapperRef} className="relative flex-1 min-h-[320px]" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+      <ReactFlow<LabFlowNode, Edge>
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodesChange={(changes) =>
+          onNodesChange(editable ? changes : changes.filter((c) => c.type !== "remove"))
+        }
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        isValidConnection={isValidConnection}
+        onNodeClick={(_, n) => setSelectedId(n.id)}
+        onPaneClick={() => setSelectedId(null)}
+        onNodesDelete={() => setSelectedId(null)}
+        deleteKeyCode={["Backspace", "Delete"]}
+        fitView
+        fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
+        minZoom={0.3}
+        maxZoom={1.75}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--grid)" />
+        <Controls showInteractive={false} position="bottom-left" />
+      </ReactFlow>
+    </div>
+  );
+
+  const inspector = (
+    <Inspector
+      selected={selected}
+      snapshot={sim.snapshot}
+      history={sim.history}
+      incidents={sim.incidents}
+      labels={labels}
+      canDelete={editable}
+      onConfig={(id, config) => updateData(id, { config })}
+      onRename={(id, label) => updateData(id, { label })}
+      onFault={sim.fault}
+      onDelete={removeNode}
+    />
+  );
+
+  const toolbar = (
+    <Toolbar
+      playing={sim.playing}
+      speed={sim.speed}
+      time={sim.snapshot?.time ?? 0}
+      onPlay={sim.play}
+      onPause={sim.pause}
+      onSpeed={sim.setSpeed}
+      onReset={sim.reset}
+    />
+  );
+
+  return (
+    <SnapshotContext.Provider value={sim.snapshot}>
+      {wide ? (
+        <div className="flex flex-1 min-h-0">
+          <Palette kinds={props.palette} onAdd={(k) => addNode(k)} layout="column" />
+          <div className="flex flex-col flex-1 min-w-0">
+            {toolbar}
+            {canvas}
+          </div>
+          <aside className="w-80 shrink-0 border-l border-line bg-panel overflow-y-auto" aria-label="Inspector">
+            {inspector}
+          </aside>
+        </div>
+      ) : (
+        <div className="flex flex-col flex-1 min-h-0">
+          {toolbar}
+          <Palette kinds={props.palette} onAdd={(k) => addNode(k)} layout="row" />
+          {canvas}
+          <aside className="h-72 shrink-0 border-t border-line bg-panel overflow-y-auto" aria-label="Inspector">
+            {inspector}
+          </aside>
+        </div>
+      )}
+    </SnapshotContext.Provider>
+  );
+}
+
+export function Lab(props: LabProps) {
+  return (
+    <ReactFlowProvider>
+      <LabInner {...props} />
+    </ReactFlowProvider>
+  );
+}
