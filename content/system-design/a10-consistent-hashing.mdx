@@ -1,0 +1,43 @@
+In the sharding lesson, adding a shard just worked, because the lab didn't model what moving data costs. This lesson does. The setup is a common one: a cache split across several machines in front of a database that can't handle the full load on its own.
+
+## A sharded cache
+
+The cache router hashes each key to pick a cache shard, so every key always goes to the same shard and that shard keeps it warm. Press **Send traffic** and wait. At first every lookup misses and the database is swamped; within a few seconds the shards fill up, nearly every request is a hit, and the database relaxes.
+
+That warm state is precious. The database can only handle a fraction of the traffic; it's alive because the caches answer almost everything.
+
+## Adding a shard with hash mod N
+
+The router uses the simplest scheme: hash the key, take the remainder after dividing by the number of shards. With 4 shards, a key goes to `hash % 4`. Add a fifth shard and it goes to `hash % 5`, which for most keys is a different number.
+
+Try it. Roughly four out of five keys now route to a shard that has never seen them. They all miss at once, and the database gets hit with a wave of traffic it can't serve. The more shards you have, the worse it gets: going from 10 to 11 shards remaps about 90% of keys.
+
+<HashRingExplorer />
+
+## Consistent hashing
+
+**Consistent hashing** arranges shards around a ring. Each key is hashed to a point on the ring and belongs to the next shard clockwise. Each shard actually appears at many points around the ring (these are called **virtual nodes**), which keeps the slices even.
+
+When a new shard joins, it takes over small slices from the shards next to it on the ring. Everything else stays put. Adding a fifth shard moves about a fifth of the keys, the minimum possible.
+
+Switch the router to consistent hashing in the lab. Changing schemes is itself a big remap, so let the caches warm up again. Then add another shard and watch the database barely react.
+
+## When a shard dies
+
+The ring also handles failures gracefully. With health checks on, a dead shard's keys simply belong to the next live shard round the ring. Only those keys miss, once, and everyone else's data stays where it was. Under hash mod N there's no such fallback: either the dead shard's keys fail, or you change N and remap almost everything.
+
+<Note>
+Consistent hashing is everywhere: distributed caches, key-value stores like Dynamo and Cassandra, and load balancers that want the same user to keep reaching the same server.
+</Note>
+
+<Goals />
+
+## What to remember
+
+- Adding a shard means moving the keys that now belong elsewhere, and for caches that means misses.
+- Hash mod N remaps almost every key when N changes.
+- Consistent hashing moves only about 1/N of the keys.
+- Virtual nodes keep each shard's share of the ring even.
+- With a ring, a dead shard's keys fall to its neighbour instead of failing.
+
+<Quiz />

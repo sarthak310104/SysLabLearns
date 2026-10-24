@@ -1,0 +1,41 @@
+Traffic changes through the day. Running enough servers for the busiest minute of the year wastes money the rest of the time; running too few fails at the worst moment. **Autoscaling** adds capacity when load rises and removes it when load falls.
+
+## How an autoscaler decides
+
+The autoscaler in the lab works like most real ones. Every couple of seconds it looks at how busy the web servers were. Above 70%, it starts more workers; below 30% for a while, it removes some. The workers setting is the minimum it will keep running.
+
+The crucial detail: new workers aren't ready instantly. A real server has to start, load code, warm up caches and pass health checks. In the lab that takes 10 seconds.
+
+## A slow ramp: autoscaling works
+
+Turn autoscaling on, then ramp traffic up to 400 requests a second over 30 seconds. Watch the web servers: as they get busy, more workers start, and capacity climbs with the traffic. Nothing fails, because the traffic grew slower than new workers could arrive.
+
+<AutoscaleLag />
+
+## A sudden spike: autoscaling is too late
+
+Switch to spikes. Each spike quadruples traffic for 2 seconds. The autoscaler notices, starts workers, and they arrive 10 seconds later, long after the spike has passed and errors have already happened. Then they sit idle until they're removed again.
+
+An autoscaler can only respond to change that's slower than its start-up time.
+
+## Getting through spikes anyway
+
+- **Headroom**: keep enough spare capacity running at all times to absorb the biggest spike you expect. It costs money every hour, which is the trade-off.
+- **Scheduled scaling**: if you know the spike is coming (a sale at 9 am, a match kick-off), scale up beforehand.
+- **Faster start-up**: smaller services, pre-built images and warm pools of ready servers cut start time from minutes to seconds.
+- **A queue**: if the work can wait a little, let a queue absorb the spike and drain it afterwards, as in the queues lesson.
+
+<Note>
+Autoscaling also has to scale down carefully. Remove capacity too eagerly and the next bump in traffic triggers another scale-up: the system **flaps** up and down. Waiting a while before removing workers avoids that.
+</Note>
+
+<Goals />
+
+## What to remember
+
+- Autoscaling matches capacity to traffic, but always reacts after the fact.
+- New capacity takes time to start; changes faster than that aren't helped.
+- Headroom, scheduled scaling, faster start-up or a queue cover the gap.
+- Scale down slowly to avoid flapping.
+
+<Quiz />

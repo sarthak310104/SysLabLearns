@@ -1,0 +1,37 @@
+Shared systems have a problem that doesn't show up when you test alone: other people. One client with a bug, a heavy batch job, or someone abusing your API can use up capacity everyone else needs. That's a **noisy neighbour**.
+
+## When one client hurts everyone
+
+In the lab, normal users send 200 requests a second. A partner's script, stuck in a loop, sends 600. The servers can handle about 530. Press **Send traffic**: the servers are overloaded, and normal users get errors for a problem they didn't cause.
+
+## A rate limit for everyone together
+
+A **rate limit** caps how many requests get through per second. The usual way to build one is a **token bucket**: tokens drip into a bucket at the allowed rate, each request takes one, and when the bucket is empty, requests are rejected straight away. The bucket's size sets how big a short burst can be.
+
+Put a shared limit of about 450 on the API gateway. The servers are now safe: excess traffic is turned away at the door, fast and cheap, instead of piling up inside. But look at normal users. The limit is shared, so they're rejected in proportion to everyone else, and since the script sends three times as much, it still takes most of the capacity.
+
+<FairShare />
+
+## A rate limit per client
+
+Make the limit apply to each client separately. Now each one gets its own bucket. Normal users stay under their limit and get through untouched. The script hits its limit and gets rejected. The cost lands on whoever caused it.
+
+Real systems identify clients by API key, account or IP address, and often set different limits for different plans. Rejected requests usually get a specific answer, HTTP 429 "Too Many Requests", ideally with a hint about when to try again.
+
+## Beyond simple limits
+
+- **Quotas** cap usage over longer periods, like requests per day.
+- **Priority** lets important traffic, such as checkout, through ahead of less important traffic, such as recommendations, when the system is busy.
+- **Fair queuing** gives every client an equal turn instead of first come, first served, so a burst from one can't starve the rest.
+- **Separate pools** (sometimes called bulkheads) give big tenants their own servers so a problem in one can't spread.
+
+<Goals />
+
+## What to remember
+
+- Without limits, one misbehaving client can take capacity from everyone.
+- A token bucket allows a steady rate plus small bursts, and rejects the rest quickly.
+- A shared limit protects the servers but not fairness.
+- Per-client limits make the noisy client pay for its own noise.
+
+<Quiz />

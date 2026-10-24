@@ -1,0 +1,39 @@
+Everything so far has assumed your users sit next to your servers. They don't. Light in fibre covers roughly 200 km every millisecond, and real routes are longer than a straight line. A user in Mumbai talking to a server in Virginia waits close to 100 ms each way before your code even runs.
+
+## Distance is part of every request
+
+In the lab, the server and database together need about 25 ms. Press **Send traffic** and look at the typical (p50) latency for users: it's around 200 ms. Almost all of that is travel. You could make the server ten times faster and users would barely notice.
+
+<LatencyBudget />
+
+## Serve from nearby: a CDN
+
+A **content delivery network** is a set of caches placed close to users all over the world. A request goes to the nearest one. If it has the answer, the round trip is a few milliseconds instead of two hundred. If not, it fetches from your **origin** once, keeps a copy, and serves everyone nearby from that copy.
+
+Build one: add a cache, set its region to Mumbai, and route users through it to the origin. The typical request drops from about 200 ms to a few.
+
+The slowest requests don't improve as much. Every miss still makes the full trip, so p99 stays high while p50 collapses. Both numbers matter: p50 is what most people feel, and p99 is what your unluckiest users feel.
+
+## What works well on a CDN
+
+- **Static files**: images, scripts, stylesheets, video. They rarely change, so they can be cached for hours or days.
+- **Popular public pages**: a home page or product page that's the same for everyone can be cached for seconds or minutes.
+- **Not personal data**: a page that shows *your* account can't be shared with the next person, so it either skips the CDN or gets split into a shared shell plus a small personal request.
+
+When cached content must change, you either wait for the TTL or **purge** it from the CDN. Many sites put a version in the file name (`app.3f9a2c.js`) so a new release is a new file and old copies never need purging.
+
+## A CDN is also a shield
+
+Crash the origin in the lab. Most users keep getting answers, because the popular content is already sitting at the edge. Real CDNs go further and can **serve stale** content when the origin is unreachable, choosing slightly old data over an error. They also absorb traffic spikes and attacks that would flatten a single origin.
+
+<Goals />
+
+## What to remember
+
+- Network distance adds latency you can't optimise away in code.
+- A CDN caches content near users and cuts typical latency to a few milliseconds.
+- Misses still pay the full trip, so p99 improves less than p50.
+- Cache what's shared; keep personal data out; version files instead of purging.
+- An edge cache also protects your origin from spikes and outages.
+
+<Quiz />

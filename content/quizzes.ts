@@ -338,4 +338,132 @@ export const QUIZZES: Record<string, Question[]> = {
       explain: "Silence looks the same either way. That uncertainty is exactly what makes distributed systems hard, and it's the starting point of the protocols track.",
     },
   ],
+  "a9-cdn": [
+    {
+      q: "A user in Mumbai calls a server in Virginia that does 20 ms of work. Roughly how long does the request take?",
+      options: ["About 20 ms", "About 115 ms", "About 210 ms", "About 2 seconds"],
+      answer: 2,
+      explain: "About 95 ms there and 95 ms back, plus 20 ms of work. Travel dominates, and faster code can't remove it.",
+    },
+    {
+      q: "After adding a CDN with a 95% hit ratio, which number improves most?",
+      options: ["p50 (typical latency)", "p99 (slowest 1%)", "Both equally", "Neither"],
+      answer: 0,
+      explain: "Most requests become fast hits, so the typical request improves dramatically. The 5% of misses still make the full trip, and they're exactly the ones p99 measures.",
+    },
+    {
+      q: "Which page is the worst fit for CDN caching?",
+      options: ["A company logo", "A public product page", "A user's account settings page", "A JavaScript bundle"],
+      answer: 2,
+      explain: "A personal page can't be shown to the next visitor. It must skip the shared cache or be split into a shared part and a small personal request.",
+    },
+    {
+      q: "Why do sites put a version in file names, like app.3f9a2c.js?",
+      options: ["To make files smaller", "So a new release is a new file, and old cached copies never need purging", "Search engines prefer it", "It hides the source code"],
+      answer: 1,
+      explain: "Old versions can stay cached forever because nothing points to them any more. The new release has a new name, so nobody can get a stale copy.",
+    },
+    {
+      q: "The origin goes down. Why do many users still get answers?",
+      options: ["The CDN rebuilds the site", "Popular content is already cached at the edge", "The CDN starts its own database", "Requests are queued"],
+      answer: 1,
+      explain: "Cached content can be served until it expires, and many CDNs can serve stale copies when the origin is unreachable.",
+    },
+  ],
+  "a10-consistent-hashing": [
+    {
+      q: "A sharded cache uses hash mod N with 10 shards. You add an 11th. Roughly what share of keys move?",
+      options: ["About 9%", "About 50%", "About 90%", "None"],
+      answer: 2,
+      explain: "Changing the divisor changes the remainder for almost every key, so roughly 10 in 11 keys now map somewhere else.",
+    },
+    {
+      q: "Why is moving keys especially painful for a sharded cache?",
+      options: ["Caches can't store moved keys", "Every moved key becomes a miss that lands on the database at the same time", "The router has to restart", "Moved keys are deleted from the database"],
+      answer: 1,
+      explain: "The new owner of a key has never seen it, so it misses. When most keys move at once, the database gets the whole load in one wave.",
+    },
+    {
+      q: "With consistent hashing, which keys does a new shard take over?",
+      options: ["A random selection from every shard", "Small slices from the shards next to it on the ring", "All of one existing shard's keys", "Only new keys"],
+      answer: 1,
+      explain: "Each key belongs to the next shard clockwise. A new shard's points on the ring take over only the arcs just before them.",
+    },
+    {
+      q: "What are virtual nodes for?",
+      options: ["Testing without real servers", "Placing each shard at many points on the ring so the slices are even", "Backing up keys", "Encrypting keys"],
+      answer: 1,
+      explain: "With one point per shard, the arcs can be very uneven by chance. Many points per shard average that out.",
+    },
+    {
+      q: "A shard dies. With consistent hashing and health checks, what happens to its keys?",
+      options: ["They fail until it returns", "They go to the next live shard on the ring and miss once", "Every key is remapped", "They're spread randomly"],
+      answer: 1,
+      explain: "Only the dead shard's keys move, to its neighbour, which fetches them from the database once. Everyone else is unaffected.",
+    },
+  ],
+  "a11-rate-limiting": [
+    {
+      q: "In a token bucket, what does the size of the bucket control?",
+      options: ["The long-run rate", "How big a short burst can be", "How many clients there are", "How long requests wait"],
+      answer: 1,
+      explain: "Tokens refill at the allowed rate; a full bucket lets a burst through all at once. A bigger bucket allows bigger bursts.",
+    },
+    {
+      q: "A shared limit of 450 req/s is set. Normal users send 200 and a script sends 600. Roughly how many of the normal users' requests get through?",
+      options: ["All 200", "About 110", "About 50", "None"],
+      answer: 1,
+      explain: "The limit lets through 450 of 800 requests, about 56% of everyone's traffic. Normal users get the same share: about 110 of their 200.",
+    },
+    {
+      q: "Why is rejecting excess requests at the gateway better than letting servers deal with them?",
+      options: ["Servers can't reject requests", "Rejecting at the door is cheap and fast; overloaded servers slow down for everyone", "Gateways are faster servers", "It hides errors from users"],
+      answer: 1,
+      explain: "A quick rejection costs almost nothing. Excess work inside the system fills queues and slows down requests that would otherwise have succeeded.",
+    },
+    {
+      q: "Which HTTP status code means 'too many requests'?",
+      options: ["404", "429", "500", "503"],
+      answer: 1,
+      explain: "429 tells the client it's being rate limited, ideally with a hint about when to retry, so a well-behaved client can back off.",
+    },
+    {
+      q: "What does fair queuing do differently from first come, first served?",
+      options: ["Serves the oldest requests first", "Gives each client a turn, so one client's burst can't starve the others", "Drops requests at random", "Serves premium clients only"],
+      answer: 1,
+      explain: "Taking turns between clients means a flood from one client queues behind itself, not in front of everyone else.",
+    },
+  ],
+  "a12-autoscaling": [
+    {
+      q: "New workers take 60 seconds to start. Which traffic pattern can autoscaling handle?",
+      options: ["A 5-second burst", "A rise that takes 20 minutes", "A traffic spike at a match kick-off", "None"],
+      answer: 1,
+      explain: "Autoscaling can only keep up with change that's slower than its start-up time. A slow daily rise gives it plenty of time.",
+    },
+    {
+      q: "Why does an autoscaler always lag behind traffic?",
+      options: ["It's poorly programmed", "It reacts to load it has already measured, then waits for new capacity to start", "It only runs once an hour", "Cloud providers delay it on purpose"],
+      answer: 1,
+      explain: "It has to see high load first, then order capacity, then wait for it to boot. That delay is unavoidable.",
+    },
+    {
+      q: "You know a flash sale starts at 9 am. What's the best plan?",
+      options: ["Rely on autoscaling", "Scale up shortly before 9 am", "Add a cache", "Lower the timeout"],
+      answer: 1,
+      explain: "Scheduled scaling uses what you already know. Capacity is ready before the spike instead of arriving after it.",
+    },
+    {
+      q: "What does keeping headroom cost you?",
+      options: ["Nothing", "Paying for idle capacity all the time", "Slower requests", "More errors"],
+      answer: 1,
+      explain: "Spare capacity only helps if it's already running, which means paying for it even when traffic is low.",
+    },
+    {
+      q: "An autoscaler removes workers the moment load drops, then adds them back a minute later, over and over. What's this called, and what's the usual fix?",
+      options: ["Thrashing; add more memory", "Flapping; wait longer before scaling down", "Throttling; add a rate limit", "Sharding; add more shards"],
+      answer: 1,
+      explain: "Flapping wastes start-up time and leaves the system under-provisioned when traffic returns. A cool-down before removing capacity smooths it out.",
+    },
+  ],
 };

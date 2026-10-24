@@ -1,9 +1,9 @@
 import { defaultConfig } from "@/engine/model/defaults";
-import type { AnyConfig, ClientConfig, ComponentKind, DatabaseConfig, Graph, GraphNode, Snapshot } from "@/engine/model/types";
+import type { AnyConfig, ClientConfig, ComponentKind, DatabaseConfig, Graph, GraphNode, Region, Snapshot } from "@/engine/model/types";
 import { clientView, configOf, countKind, ofKind, targetsOf, type Preset } from "@/lib/goals";
 
-function n(id: string, kind: ComponentKind, label: string, x: number, y: number, config: Partial<AnyConfig> = {}): GraphNode {
-  return { id, kind, label, position: { x, y }, config: { ...defaultConfig(kind), ...config } as AnyConfig };
+function n(id: string, kind: ComponentKind, label: string, x: number, y: number, config: Partial<AnyConfig> = {}, region?: Region): GraphNode {
+  return { id, kind, label, position: { x, y }, config: { ...defaultConfig(kind), ...config } as AnyConfig, ...(region ? { region } : {}) };
 }
 const e = (source: string, target: string) => ({ id: `e-${source}-${target}`, source, target });
 
@@ -243,12 +243,12 @@ export const A8: Preset = {
   title: "Two regions, one dataset",
   graph: {
     nodes: [
-      n("eu", "client", "Users in Europe", 0, 0, { rps: 150, writeShare: 0.3, keySpace: 1000, hotShare: 0.5 }),
-      n("euApi", "server", "API (Europe)", 260, -20, { workers: 32, serviceMs: 3 }),
-      n("euDb", "database", "Database (Europe)", 540, -20, { workers: 16, serviceMs: 10, mode: "async" }),
-      n("us", "client", "Users in America", 0, 280, { rps: 150, writeShare: 0.3, keySpace: 1000, hotShare: 0.5 }),
-      n("usApi", "server", "API (America)", 260, 260, { workers: 32, serviceMs: 3 }),
-      n("usDb", "database", "Database (America)", 540, 260, { workers: 16, serviceMs: 10, mode: "async" }),
+      n("eu", "client", "Users in Europe", 0, 0, { rps: 150, writeShare: 0.3, keySpace: 1000, hotShare: 0.5 }, "frankfurt"),
+      n("euApi", "server", "API (Europe)", 260, -20, { workers: 32, serviceMs: 3 }, "frankfurt"),
+      n("euDb", "database", "Database (Europe)", 540, -20, { workers: 16, serviceMs: 10, mode: "async" }, "frankfurt"),
+      n("us", "client", "Users in America", 0, 280, { rps: 150, writeShare: 0.3, keySpace: 1000, hotShare: 0.5 }, "virginia"),
+      n("usApi", "server", "API (America)", 260, 260, { workers: 32, serviceMs: 3 }, "virginia"),
+      n("usDb", "database", "Database (America)", 540, 260, { workers: 16, serviceMs: 10, mode: "async" }, "virginia"),
     ],
     edges: [e("eu", "euApi"), e("euApi", "euDb"), e("us", "usApi"), e("usApi", "usDb"), e("euDb", "usDb"), e("usDb", "euDb")],
   },

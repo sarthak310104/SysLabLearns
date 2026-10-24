@@ -1,5 +1,6 @@
 import { A1, A2, A3 } from "./system-design/presets";
 import { A4, A5, A6, A7, A8 } from "./system-design/presets2";
+import { A9, A10, A11, A12 } from "./system-design/presets3";
 import type { Preset } from "@/lib/goals";
 
 export interface Module {
@@ -34,6 +35,10 @@ export const TRACKS: Track[] = [
       { code: "A6", title: "Queues and async work", breaks: "Spikes build a backlog, and workers must keep up on average.", slug: "a6-queues", preset: A6 },
       { code: "A7", title: "Timeouts, retries and circuit breakers", breaks: "A slow database plus impatient retries: lots of work, no answers.", slug: "a7-resilience", preset: A7 },
       { code: "A8", title: "Consistency and partitions", breaks: "The network splits and you must pick: refuse writes or diverge.", slug: "a8-partitions", preset: A8 },
+      { code: "A9", title: "CDNs and network distance", breaks: "Users half a world away wait for the speed of light.", slug: "a9-cdn", preset: A9 },
+      { code: "A10", title: "Consistent hashing", breaks: "Adding one cache shard sends a wave of misses to the database.", slug: "a10-consistent-hashing", preset: A10 },
+      { code: "A11", title: "Rate limiting and noisy neighbours", breaks: "One client's buggy script takes capacity from everyone.", slug: "a11-rate-limiting", preset: A11 },
+      { code: "A12", title: "Autoscaling", breaks: "New servers arrive after the spike is already over.", slug: "a12-autoscaling", preset: A12 },
     ],
   },
   {

@@ -13,6 +13,10 @@ const CONTENT: Record<string, () => Promise<{ default: ComponentType }>> = {
   "a6-queues": () => import("@/content/system-design/a6-queues.mdx"),
   "a7-resilience": () => import("@/content/system-design/a7-resilience.mdx"),
   "a8-partitions": () => import("@/content/system-design/a8-partitions.mdx"),
+  "a9-cdn": () => import("@/content/system-design/a9-cdn.mdx"),
+  "a10-consistent-hashing": () => import("@/content/system-design/a10-consistent-hashing.mdx"),
+  "a11-rate-limiting": () => import("@/content/system-design/a11-rate-limiting.mdx"),
+  "a12-autoscaling": () => import("@/content/system-design/a12-autoscaling.mdx"),
 };
 
 export function generateStaticParams() {
