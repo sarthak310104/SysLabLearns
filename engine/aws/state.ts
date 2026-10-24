@@ -28,6 +28,8 @@ export interface S3Bucket {
   policy?: string;
   publicAccessBlock: { BlockPublicAcls: boolean; IgnorePublicAcls: boolean; BlockPublicPolicy: boolean; RestrictPublicBuckets: boolean };
   tags?: Record<string, string>;
+  /** Static website hosting, when turned on. */
+  website?: { index: string; error?: string };
 }
 
 export interface SqsMessage {
@@ -189,6 +191,81 @@ export interface HttpApi {
   integrations: Record<string, string>;
 }
 
+export interface CfDistribution {
+  id: string;
+  arn: string;
+  domain: string;
+  createdAt: number;
+  /** Changes take a while to reach every edge location. */
+  deployedAt: number;
+  etag: string;
+  enabled: boolean;
+  comment: string;
+  callerReference: string;
+  defaultRootObject: string;
+  origin: { id: string; domain: string; oacId: string };
+  /** Seconds a response stays cached by default. */
+  defaultTtl: number;
+  /** Path to cached copy. */
+  cache: Record<string, { body: string; contentType: string; status: number; at: number }>;
+  invalidations: { id: string; paths: string[]; at: number }[];
+  stats?: { hits: number; misses: number };
+}
+
+export interface CfOac {
+  id: string;
+  name: string;
+  etag: string;
+  signingBehavior: string;
+  originType: string;
+}
+
+export interface EventRule {
+  name: string;
+  arn: string;
+  createdAt: number;
+  state: "ENABLED" | "DISABLED";
+  description?: string;
+  schedule?: string;
+  pattern?: string;
+  targets: { Id: string; Arn: string; Input?: string }[];
+  /** When the schedule fires next (simulated clock). */
+  nextAt?: number;
+  stats: { triggered: number; invocations: number; failed: number };
+}
+
+export interface SfnMachine {
+  name: string;
+  arn: string;
+  definition: string;
+  roleArn: string;
+  type: "STANDARD" | "EXPRESS";
+  createdAt: number;
+}
+
+export interface SfnHistoryEvent {
+  id: number;
+  previousEventId: number;
+  timestamp: number;
+  type: string;
+  details?: Record<string, unknown>;
+}
+
+export interface SfnExecution {
+  arn: string;
+  name: string;
+  machineArn: string;
+  startedAt: number;
+  /** Wait states push this later: until then it reports RUNNING. */
+  stopAt: number;
+  input: string;
+  status: "SUCCEEDED" | "FAILED";
+  output?: string;
+  error?: string;
+  cause?: string;
+  history: SfnHistoryEvent[];
+}
+
 export interface AwsState {
   version: 1;
   /** Added to the real clock: `sleep` moves time forward without waiting. */
@@ -206,6 +283,9 @@ export interface AwsState {
   logs: { groups: Record<string, LogGroup> };
   iam: { users: Record<string, IamUser>; roles: Record<string, IamRole>; policies: Record<string, IamManagedPolicy> };
   apigw: { apis: Record<string, HttpApi> };
+  cloudfront: { distributions: Record<string, CfDistribution>; oacs: Record<string, CfOac> };
+  events: { rules: Record<string, EventRule> };
+  sfn: { machines: Record<string, SfnMachine>; executions: SfnExecution[] };
 }
 
 export function freshState(): AwsState {
@@ -240,7 +320,18 @@ export function freshState(): AwsState {
       policies: {},
     },
     apigw: { apis: {} },
+    cloudfront: { distributions: {}, oacs: {} },
+    events: { rules: {} },
+    sfn: { machines: {}, executions: [] },
   };
+}
+
+/** Accounts saved before newer services existed get empty ones. */
+export function upgradeState(s: AwsState): AwsState {
+  s.cloudfront ??= { distributions: {}, oacs: {} };
+  s.events ??= { rules: {} };
+  s.sfn ??= { machines: {}, executions: [] };
+  return s;
 }
 
 /* ------------------------------------------------------------------ */

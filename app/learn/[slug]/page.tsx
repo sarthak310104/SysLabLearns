@@ -33,6 +33,10 @@ const CONTENT: Record<string, () => Promise<{ default: ComponentType }>> = {
   "c6-dynamodb": () => import("@/content/aws/c6-dynamodb.mdx"),
   "c7-lambda": () => import("@/content/aws/c7-lambda.mdx"),
   "c8-serverless-api": () => import("@/content/aws/c8-serverless-api.mdx"),
+  "c9-websites": () => import("@/content/aws/c9-websites.mdx"),
+  "c10-eventbridge": () => import("@/content/aws/c10-eventbridge.mdx"),
+  "c11-step-functions": () => import("@/content/aws/c11-step-functions.mdx"),
+  "c12-mystery": () => import("@/content/aws/c12-mystery.mdx"),
 };
 
 export function generateStaticParams() {

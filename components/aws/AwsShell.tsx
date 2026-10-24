@@ -41,7 +41,7 @@ export function AwsShell({ slug, children }: { slug: string; children: React.Rea
     for (const id of newly) markGoalComplete(slug, id);
   }, [lab.state, lab.history, loaded, def, slug, status]);
 
-  const goals = useMemo(() => def.steps.map((st) => ({ id: st.id, text: st.text, hint: st.hint })), [def]);
+  const goals = useMemo(() => def.steps.map((st) => ({ id: st.id, text: st.text, hint: st.hint, hints: st.hints })), [def]);
   const ctx = useMemo(() => ({ slug, goals, status }), [slug, goals, status]);
 
   return (

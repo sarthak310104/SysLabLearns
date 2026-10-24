@@ -288,7 +288,7 @@ function toYaml(v: unknown, indent = ""): string {
 
 const GLOBAL_WITH_VALUE = new Set(["region", "profile", "output", "query", "endpoint-url", "cli-binary-format", "color", "cli-read-timeout", "cli-connect-timeout"]);
 /** Flags that take several space-separated values; every other flag takes one. */
-const MULTI = new Set(["attribute-definitions", "key-schema", "attribute-names", "message-attribute-names", "tags", "entries", "global-secondary-indexes", "statement-ids", "policy-names", "action-names", "resource-arns", "message-system-attribute-names"]);
+const MULTI = new Set(["attribute-definitions", "key-schema", "attribute-names", "message-attribute-names", "tags", "entries", "global-secondary-indexes", "statement-ids", "paths", "targets", "ids", "policy-names", "action-names", "resource-arns", "message-system-attribute-names"]);
 const GLOBAL_BOOL = new Set(["no-cli-pager", "debug", "no-verify-ssl", "no-paginate", "no-sign-request", "cli-auto-prompt", "no-cli-auto-prompt"]);
 
 export interface AwsResult {

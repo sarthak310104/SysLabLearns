@@ -5,6 +5,21 @@ import { freshState } from "@/engine/aws/state";
 
 const TRUST = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`;
 
+/** Files a learner saves from the lesson (with "Save as") before running the commands. */
+const FILES: Record<string, Record<string, string>> = {
+  "c9-websites": { "index.html": "<h1>Hello from my site</h1>\n", "error.html": "<h1>Nothing here</h1>\n" },
+  "c10-eventbridge": {
+    "report.mjs": 'export const handler = async (event) => {\n  console.log("report for", event.time);\n  return "done";\n};\n',
+    "pattern.json": '{"source":["shop.orders"],"detail-type":["OrderPlaced"],"detail":{"total":[{"numeric":[">=",1000]}]}}',
+    "orders.json": '[{"Source":"shop.orders","DetailType":"OrderPlaced","Detail":"{\\"id\\":\\"o-1\\",\\"total\\":250}"},{"Source":"shop.orders","DetailType":"OrderPlaced","Detail":"{\\"id\\":\\"o-2\\",\\"total\\":4500}"}]',
+  },
+  "c11-step-functions": {
+    "steps.mjs": 'export const checkStock = async (order) => ({ available: order.item !== "teapot", left: 12 });\nexport const chargeCard = async (order) => {\n  if (order.amount > 5000) {\n    const e = new Error("declined");\n    e.name = "CardDeclined";\n    throw e;\n  }\n  return { charged: order.amount };\n};\n',
+    "sfn-trust.json": '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"states.amazonaws.com"},"Action":"sts:AssumeRole"}]}',
+    "order-flow.json": "{\"Comment\": \"Place an order\", \"StartAt\": \"CheckStock\", \"States\": {\"CheckStock\": {\"Type\": \"Task\", \"Resource\": \"arn:aws:lambda:ap-south-1:123456789012:function:order-check-stock\", \"ResultPath\": \"$.stock\", \"Next\": \"InStock?\"}, \"InStock?\": {\"Type\": \"Choice\", \"Choices\": [{\"Variable\": \"$.stock.available\", \"BooleanEquals\": true, \"Next\": \"ChargeCard\"}], \"Default\": \"OutOfStock\"}, \"OutOfStock\": {\"Type\": \"Fail\", \"Error\": \"OutOfStock\", \"Cause\": \"Not enough left\"}, \"ChargeCard\": {\"Type\": \"Task\", \"Resource\": \"arn:aws:lambda:ap-south-1:123456789012:function:order-charge-card\", \"ResultPath\": \"$.payment\", \"Retry\": [{\"ErrorEquals\": [\"PaymentServiceBusy\"], \"IntervalSeconds\": 2, \"MaxAttempts\": 3, \"BackoffRate\": 2}], \"Catch\": [{\"ErrorEquals\": [\"CardDeclined\"], \"ResultPath\": \"$.error\", \"Next\": \"PaymentFailed\"}], \"Next\": \"WaitForPacking\"}, \"PaymentFailed\": {\"Type\": \"Fail\", \"Error\": \"PaymentFailed\", \"Cause\": \"The card was declined\"}, \"WaitForPacking\": {\"Type\": \"Wait\", \"Seconds\": 60, \"Next\": \"Done\"}, \"Done\": {\"Type\": \"Succeed\"}}}",
+  },
+};
+
 /** What a learner types for each lab, in order. */
 const SCRIPTS: Record<string, string[]> = {
   "c1-cloud-basics": [
@@ -132,12 +147,86 @@ export const handler = async (event) => {
     `curl -X POST https://$API.execute-api.ap-south-1.amazonaws.com/notes -d '{"id":"n1","text":"buy milk"}'`,
     "curl https://$API.execute-api.ap-south-1.amazonaws.com/notes",
   ],
+  "c9-websites": [
+    "aws s3 mb s3://asha-site-2026",
+    "aws s3 cp index.html s3://asha-site-2026/",
+    "aws s3 cp error.html s3://asha-site-2026/",
+    "aws s3 website s3://asha-site-2026 --index-document index.html --error-document error.html",
+    "aws s3api delete-public-access-block --bucket asha-site-2026",
+    "aws s3api put-bucket-policy --bucket asha-site-2026 --policy '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::asha-site-2026/*\"}]}'",
+    "curl http://asha-site-2026.s3-website.ap-south-1.amazonaws.com",
+    "D=$(aws cloudfront create-distribution --origin-domain-name asha-site-2026.s3.ap-south-1.amazonaws.com --default-root-object index.html --query Distribution.Id --output text)",
+    "CF=$(aws cloudfront get-distribution --id $D --query Distribution.DomainName --output text)",
+    "aws cloudfront wait distribution-deployed --id $D",
+    "curl -i https://$CF",
+    "curl -i https://$CF",
+    "OAC=$(aws cloudfront create-origin-access-control --origin-access-control-config Name=site-oac,SigningProtocol=sigv4,SigningBehavior=always,OriginAccessControlOriginType=s3 --query OriginAccessControl.Id --output text)",
+    "ETAG=$(aws cloudfront get-distribution-config --id $D --query ETag --output text)",
+    "aws cloudfront get-distribution-config --id $D --query DistributionConfig > dist.json",
+    "jq \".Origins.Items[0].OriginAccessControlId = \\\"$OAC\\\"\" dist.json > dist-oac.json",
+    "aws cloudfront update-distribution --id $D --if-match $ETAG --distribution-config file://dist-oac.json",
+    "aws s3api put-bucket-policy --bucket asha-site-2026 --policy '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"cloudfront.amazonaws.com\"},\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::asha-site-2026/*\",\"Condition\":{\"StringEquals\":{\"AWS:SourceArn\":\"arn:aws:cloudfront::123456789012:distribution/'$D'\"}}}]}'",
+    "aws s3api put-public-access-block --bucket asha-site-2026 --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true",
+    "echo '<h1>Version two</h1>' > index.html",
+    "aws s3 cp index.html s3://asha-site-2026/",
+    "aws cloudfront create-invalidation --distribution-id $D --paths \"/*\"",
+    "curl -i https://$CF",
+  ],
+  "c10-eventbridge": [
+    `echo '${TRUST}' > trust.json`,
+    "aws iam create-role --role-name report-role --assume-role-policy-document file://trust.json",
+    "aws iam attach-role-policy --role-name report-role --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+    "zip report.zip report.mjs",
+    "aws lambda create-function --function-name nightly-report --runtime nodejs20.x --handler report.handler --role arn:aws:iam::123456789012:role/report-role --zip-file fileb://report.zip",
+    "aws lambda wait function-active-v2 --function-name nightly-report",
+    "aws events put-rule --name every-5-minutes --schedule-expression \"rate(5 minutes)\"",
+    "aws events put-targets --rule every-5-minutes --targets Id=report,Arn=arn:aws:lambda:ap-south-1:123456789012:function:nightly-report",
+    "sleep 600",
+    "aws cloudwatch get-metric-statistics --namespace AWS/Events --metric-name FailedInvocations --dimensions Name=RuleName,Value=every-5-minutes --statistics Sum --period 3600 --start-time 2026-01-01T00:00:00Z --end-time 2030-01-01T00:00:00Z",
+    "aws lambda add-permission --function-name nightly-report --statement-id events --action lambda:InvokeFunction --principal events.amazonaws.com --source-arn arn:aws:events:ap-south-1:123456789012:rule/every-5-minutes",
+    "sleep 600",
+    "aws events put-rule --name weekday-mornings --schedule-expression \"cron(30 3 ? * MON-FRI *)\"",
+    "aws sqs create-queue --queue-name big-orders",
+    "aws events put-rule --name big-orders --event-pattern file://pattern.json",
+    "aws events put-targets --rule big-orders --targets Id=queue,Arn=arn:aws:sqs:ap-south-1:123456789012:big-orders",
+    "aws events put-events --entries file://orders.json",
+  ],
+  "c11-step-functions": [
+    `echo '${TRUST}' > trust.json`,
+    "aws iam create-role --role-name order-fn-role --assume-role-policy-document file://trust.json",
+    "aws iam attach-role-policy --role-name order-fn-role --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+    "zip steps.zip steps.mjs",
+    "aws lambda create-function --function-name order-check-stock --runtime nodejs20.x --handler steps.checkStock --role arn:aws:iam::123456789012:role/order-fn-role --zip-file fileb://steps.zip",
+    "aws lambda create-function --function-name order-charge-card --runtime nodejs20.x --handler steps.chargeCard --role arn:aws:iam::123456789012:role/order-fn-role --zip-file fileb://steps.zip",
+    "aws lambda wait function-active-v2 --function-name order-charge-card",
+    "aws iam create-role --role-name order-flow-role --assume-role-policy-document file://sfn-trust.json",
+    "aws stepfunctions create-state-machine --name order-flow --definition file://order-flow.json --role-arn arn:aws:iam::123456789012:role/order-flow-role",
+    "EXEC=$(aws stepfunctions start-execution --state-machine-arn arn:aws:states:ap-south-1:123456789012:stateMachine:order-flow --input '{\"item\":\"mug\",\"amount\":499}' --query executionArn --output text)",
+    "aws iam put-role-policy --role-name order-flow-role --policy-name invoke-order-steps --policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"arn:aws:lambda:ap-south-1:123456789012:function:order-*\"}]}'",
+    "EXEC=$(aws stepfunctions start-execution --state-machine-arn arn:aws:states:ap-south-1:123456789012:stateMachine:order-flow --input '{\"item\":\"mug\",\"amount\":499}' --query executionArn --output text)",
+    "aws stepfunctions describe-execution --execution-arn $EXEC --query status",
+    "sleep 60",
+    "aws stepfunctions describe-execution --execution-arn $EXEC",
+    "aws stepfunctions get-execution-history --execution-arn $EXEC",
+    "aws stepfunctions start-execution --state-machine-arn arn:aws:states:ap-south-1:123456789012:stateMachine:order-flow --input '{\"item\":\"mug\",\"amount\":9000}'",
+    "aws stepfunctions start-execution --state-machine-arn arn:aws:states:ap-south-1:123456789012:stateMachine:order-flow --input '{\"item\":\"teapot\",\"amount\":900}'",
+  ],
+  "c12-mystery": [
+    "lab-setup broken-shop",
+    "aws s3api put-bucket-policy --bucket acme-shop-site --policy '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::acme-shop-site/*\"}]}'",
+    "aws iam put-role-policy --role-name save-order-role --policy-name write-orders --policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"dynamodb:PutItem\",\"Resource\":\"arn:aws:dynamodb:ap-south-1:123456789012:table/Orders\"}]}'",
+    "U=$(aws lambda list-event-source-mappings --function-name save-order --query 'EventSourceMappings[0].UUID' --output text)",
+    "aws lambda update-event-source-mapping --uuid $U --enabled",
+    "aws lambda add-permission --function-name nightly-cleanup --statement-id events --action lambda:InvokeFunction --principal events.amazonaws.com --source-arn arn:aws:events:ap-south-1:123456789012:rule/nightly-cleanup",
+    "sleep 86400",
+  ],
 };
 
 describe("every AWS lab can be completed with the commands a learner types", () => {
   for (const labDef of AWS_LABS) {
     it(labDef.slug, async () => {
       const lab = new AwsLab(freshState());
+      for (const [name, text] of Object.entries(FILES[labDef.slug] ?? {})) lab.state.files[`/home/you/${name}`] = text;
       const history: HistoryEntry[] = [];
       const done = new Set<string>();
       for (const line of SCRIPTS[labDef.slug]) {

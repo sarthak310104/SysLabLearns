@@ -103,6 +103,9 @@ export function ResourcesPanel({ state, onReset }: { state: AwsState | null; onR
   const users = Object.values(s.iam.users);
   const roles = Object.values(s.iam.roles);
   const apis = Object.values(s.apigw.apis);
+  const dists = Object.values(s.cloudfront?.distributions ?? {});
+  const rules = Object.values(s.events?.rules ?? {});
+  const machines = Object.values(s.sfn?.machines ?? {});
 
   return (
     <div className="h-full overflow-y-auto">
@@ -113,6 +116,7 @@ export function ResourcesPanel({ state, onReset }: { state: AwsState | null; onR
           return (
             <Item key={b.name} name={b.name} meta={`${keys.length} object${keys.length === 1 ? "" : "s"}`}>
               <Row k="Versioning" v={b.versioning ?? "Off"} />
+              {b.website && <Row k="Website" v={`On (index ${b.website.index}${b.website.error ? `, errors ${b.website.error}` : ""})`} />}
               <Row k="Public access" v={pub ? (b.policy ? "Public policy set" : "Block off, no policy") : "Blocked"} />
               {keys.map((k) => (
                 <Row key={k} k={fmtSize(b.objects[k].size)} v={`${k}${b.versions?.[k]?.length ? ` (+${b.versions[k].length} older)` : ""}`} />
@@ -173,7 +177,7 @@ export function ResourcesPanel({ state, onReset }: { state: AwsState | null; onR
               <Row k="Role" v={f.role.split("/").pop()} />
               {Object.keys(f.env).length > 0 && <Row k="Environment" v={Object.entries(f.env).map(([k, v]) => `${k}=${v}`).join(" ")} />}
               {maps.map((m) => (
-                <Row key={m.uuid} k="Trigger" v={`SQS ${m.sourceArn.split(":").pop()} (batch ${m.batchSize})`} />
+                <Row key={m.uuid} k="Trigger" v={`SQS ${m.sourceArn.split(":").pop()} (batch ${m.batchSize})${m.enabled ? "" : ", disabled"}`} />
               ))}
               {f.permissions.map((p) => (
                 <Row key={p.sid} k="Invocable by" v={p.principal} />
@@ -190,6 +194,45 @@ export function ResourcesPanel({ state, onReset }: { state: AwsState | null; onR
           return (
             <Item key={g.name} name={g.name} meta={events.length ? ago(s, events[events.length - 1].t) : ""}>
               <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-muted max-h-48 overflow-y-auto">{events.slice(-20).map((e) => e.message).join("\n")}</pre>
+            </Item>
+          );
+        })}
+      </Section>
+
+      <Section title="CloudFront distributions" count={dists.length} empty="No distributions yet.">
+        {dists.map((d) => (
+          <Item key={d.id} name={d.domain} meta={now(s) < d.deployedAt ? "Deploying" : "Deployed"}>
+            <Row k="Id" v={d.id} />
+            <Row k="Origin" v={d.origin.domain} />
+            <Row k="Access" v={d.origin.oacId ? `Origin access control ${d.origin.oacId}` : "Public origin (no OAC)"} />
+            <Row k="Cached paths" v={Object.keys(d.cache).join(", ") || "none"} />
+            {d.stats && <Row k="Hits / misses" v={`${d.stats.hits} / ${d.stats.misses}`} />}
+          </Item>
+        ))}
+      </Section>
+
+      <Section title="EventBridge rules" count={rules.length} empty="No rules yet.">
+        {rules.map((r) => (
+          <Item key={r.name} name={r.name} meta={`${r.state === "ENABLED" ? "On" : "Off"} · ${r.stats.invocations} ran${r.stats.failed ? `, ${r.stats.failed} failed` : ""}`}>
+            {r.schedule && <Row k="Schedule" v={r.schedule} />}
+            {r.pattern && <Row k="Pattern" v={r.pattern} />}
+            {r.targets.map((t) => (
+              <Row key={t.Id} k="Target" v={t.Arn.split(":").slice(-1)[0]} />
+            ))}
+            {r.schedule && r.state === "ENABLED" && r.nextAt && <Row k="Next run" v={new Date(r.nextAt).toISOString().replace(".000Z", "Z")} />}
+          </Item>
+        ))}
+      </Section>
+
+      <Section title="Step Functions" count={machines.length} empty="No state machines yet.">
+        {machines.map((m) => {
+          const runs = s.sfn.executions.filter((e) => e.machineArn === m.arn);
+          return (
+            <Item key={m.name} name={m.name} meta={`${runs.length} run${runs.length === 1 ? "" : "s"}`}>
+              <Row k="Role" v={m.roleArn.split("/").pop()} />
+              {runs.slice(-6).reverse().map((e) => (
+                <Row key={e.arn} k={now(s) < e.stopAt ? "RUNNING" : e.status} v={`${e.name.slice(0, 18)}${e.error ? `  ${e.error}` : ""}`} />
+              ))}
             </Item>
           );
         })}

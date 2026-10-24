@@ -1,5 +1,6 @@
 import { decide, trusts } from "@/engine/aws/iam-eval";
 import { HOME, type AwsState } from "@/engine/aws/state";
+import { cloudfrontCanRead, publicCanRead } from "@/engine/aws/s3";
 
 /** One command you ran, kept so steps can check what you tried. */
 export interface HistoryEntry {
@@ -15,6 +16,8 @@ export interface AwsStep {
   /** What to do, in plain words. Shown in the goal list. */
   text: string;
   hint?: string;
+  /** A ladder of hints instead of one: a nudge, a direction, then nearly the answer. */
+  hints?: string[];
   done(s: AwsState, h: HistoryEntry[]): boolean;
 }
 
@@ -317,5 +320,165 @@ export const AWS_LABS: AwsLabDef[] = [
     ],
   },
 ];
+
+const dists = (s: AwsState) => Object.values(s.cloudfront?.distributions ?? {});
+const rules = (s: AwsState) => Object.values(s.events?.rules ?? {});
+const machines = (s: AwsState) => Object.values(s.sfn?.machines ?? {});
+const execs = (s: AwsState) => s.sfn?.executions ?? [];
+const allBlocked = (b: AwsState["s3"]["buckets"][string]) => Object.values(b.publicAccessBlock).every(Boolean);
+
+AWS_LABS.push(
+  {
+    slug: "c9-websites",
+    steps: [
+      {
+        id: "website",
+        text: "Turn on static website hosting for a bucket, with an index document.",
+        hint: "aws s3 website s3://yourname-site-2026 --index-document index.html --error-document error.html",
+        done: (s) => buckets(s).some((b) => Boolean(b.website?.index) && Boolean(b.objects[b.website!.index])),
+      },
+      {
+        id: "public",
+        text: "Make the website endpoint answer with your page (it needs a public read policy).",
+        hint: "Switch off the public access block, then add a bucket policy with Principal * allowing s3:GetObject on arn:aws:s3:::BUCKET/*.",
+        done: (_s, h) => h.some((e) => /^\s*curl\b.*s3-website/.test(e.line) && e.code === 0 && /<h1>/.test(e.out) && !/403 Forbidden|404 Not Found/.test(e.out)),
+      },
+      {
+        id: "cdn",
+        text: "Serve the site through a CloudFront distribution, and see a cache Hit.",
+        hint: "Create the distribution, wait for it to deploy, then curl -i https://$CF twice and look at x-cache.",
+        done: (s, h) => dists(s).length > 0 && ranAndSaw(h, /^\s*curl\b.*cloudfront\.net|^\s*curl\b.*\$CF/, /Hit from cloudfront/),
+      },
+      {
+        id: "private",
+        text: "Lock it down: the bucket is private again, and CloudFront still reads it through an origin access control.",
+        hint: "Attach an OAC to the distribution, change the bucket policy to allow only cloudfront.amazonaws.com for your distribution, and switch the public access block back on.",
+        done: (s) =>
+          dists(s).some((d) => {
+            const b = s.s3.buckets[d.origin.domain.split(".s3")[0]];
+            const key = d.defaultRootObject || "index.html";
+            return Boolean(d.origin.oacId && b && allBlocked(b) && !publicCanRead(b, key) && cloudfrontCanRead(b, key, d.arn));
+          }),
+      },
+      {
+        id: "invalidate",
+        text: "Upload a change, then invalidate the cache so CloudFront serves the new version.",
+        done: (s, h) => dists(s).some((d) => d.invalidations.length > 0) && h.some((e, i) => /create-invalidation/.test(e.line) && e.code === 0 && h.slice(i + 1).some((x) => /^\s*curl\b/.test(x.line) && /Miss from cloudfront/.test(x.out))),
+      },
+    ],
+  },
+  {
+    slug: "c10-eventbridge",
+    steps: [
+      {
+        id: "schedule",
+        text: "Create a scheduled rule that targets your function.",
+        done: (s) => rules(s).some((r) => Boolean(r.schedule) && r.targets.some((t) => t.Arn.startsWith("arn:aws:lambda:"))),
+      },
+      {
+        id: "diagnose",
+        text: "When nothing runs, find the FailedInvocations count in CloudWatch.",
+        done: (_s, h) => ranAndSaw(h, /aws\s+cloudwatch\s+get-metric-statistics.*FailedInvocations/, /"Sum":\s*[1-9]/),
+      },
+      {
+        id: "runs",
+        text: "Let EventBridge invoke the function, and see the scheduled runs in its logs.",
+        hint: "aws lambda add-permission with --principal events.amazonaws.com and --source-arn set to the rule's ARN, then sleep and tail the logs.",
+        done: (s) => rules(s).some((r) => Boolean(r.schedule) && r.stats.invocations > 0) && fns(s).some((f) => (f.stats?.bySource.events ?? 0) > 0),
+      },
+      {
+        id: "cron",
+        text: "Write a cron schedule for weekdays at 9:00 India time (remember: cron is UTC).",
+        hint: "9:00 IST is 03:30 UTC: cron(30 3 ? * MON-FRI *)",
+        done: (s) => rules(s).some((r) => /^cron\(30 3 \? \* (MON-FRI|2-6) \*\)$/.test(r.schedule ?? "")),
+      },
+      {
+        id: "pattern",
+        text: "Route only big orders to a queue with an event pattern, and send events to test it.",
+        done: (s) => rules(s).some((r) => Boolean(r.pattern) && r.stats.triggered > 0) && queues(s).some((q) => q.messages.some((m) => /"detail-type":"OrderPlaced"/.test(m.body))),
+      },
+    ],
+  },
+  {
+    slug: "c11-step-functions",
+    steps: [
+      { id: "machine", text: "Create the order-flow state machine with its own role.", done: (s) => machines(s).length > 0 },
+      {
+        id: "permission",
+        text: "Read why the first run failed, and give the state machine's role just enough permission.",
+        hint: "describe-execution shows error and cause. The role needs lambda:InvokeFunction on the order functions.",
+        done: (s) => execs(s).some((e) => e.error === "Lambda.AWSLambdaException") && execs(s).some((e) => e.status === "SUCCEEDED"),
+      },
+      {
+        id: "wait",
+        text: "Watch an execution go from RUNNING to SUCCEEDED after its Wait state.",
+        done: (_s, h) => ranAndSaw(h, /describe-execution/, /RUNNING/) && ranAndSaw(h, /describe-execution/, /SUCCEEDED/),
+      },
+      {
+        id: "paths",
+        text: "Send orders down the other two paths: a declined card and an out-of-stock item.",
+        done: (s) => execs(s).some((e) => e.error === "PaymentFailed") && execs(s).some((e) => e.error === "OutOfStock"),
+      },
+      {
+        id: "history",
+        text: "Read an execution's history to see each step it took.",
+        done: (_s, h) => ranAndSaw(h, /get-execution-history/, /TaskStateEntered/),
+      },
+    ],
+  },
+  {
+    slug: "c12-mystery",
+    steps: [
+      { id: "setup", text: "Set up the broken shop with lab-setup broken-shop.", done: (s) => Boolean(s.s3.buckets["acme-shop-site"]) },
+      {
+        id: "site",
+        text: "Customers can load the shop's website again.",
+        hints: [
+          "The website answers 403. Who is allowed to read the objects in that bucket?",
+          "Read the bucket policy carefully. Which resource does it allow s3:GetObject on: the bucket, or the objects inside it?",
+          "Put the same policy back with Resource arn:aws:s3:::acme-shop-site/* (note the /*).",
+        ],
+        done: (s) => {
+          const b = s.s3.buckets["acme-shop-site"];
+          return Boolean(b?.website && publicCanRead(b, b.website.index));
+        },
+      },
+      {
+        id: "role",
+        text: "The save-order function can write to the Orders table.",
+        hints: [
+          "Invoke save-order yourself and read the error. Which action, on which resource, was denied?",
+          "List the role's inline policies and read write-orders. Compare its Resource with the table's real ARN, letter by letter.",
+          "put-role-policy again with Resource arn:aws:dynamodb:ap-south-1:123456789012:table/Orders.",
+        ],
+        done: (s) => decide(s, role("save-order-role"), "dynamodb:PutItem", "arn:aws:dynamodb:ap-south-1:123456789012:table/Orders") === "allow",
+      },
+      {
+        id: "queue",
+        text: "This morning's three orders make it from the queue into the Orders table.",
+        hints: [
+          "The orders queue still has messages in it. What is supposed to take them out?",
+          "list-event-source-mappings shows the trigger from the queue to save-order. What state is it in?",
+          "Enable it with aws lambda update-event-source-mapping --uuid UUID --enabled (after fixing the role, or the orders will fail again).",
+        ],
+        done: (s) => {
+          const t = s.dynamodb.tables["Orders"];
+          const ids = new Set((t?.items ?? []).map((i) => (i.id as { S?: string })?.S));
+          return ["o-1001", "o-1002", "o-1003"].every((id) => ids.has(id));
+        },
+      },
+      {
+        id: "nightly",
+        text: "The nightly-cleanup job runs on schedule again.",
+        hints: [
+          "No logs at all means the function never started. Did the rule fire? Check FailedInvocations.",
+          "The rule fires, but fails to invoke. Who is allowed to invoke nightly-cleanup? (get-policy)",
+          "Add a permission for events.amazonaws.com with --source-arn arn:aws:events:ap-south-1:123456789012:rule/nightly-cleanup, then sleep 86400.",
+        ],
+        done: (s) => (s.events?.rules["nightly-cleanup"]?.stats.invocations ?? 0) > 0,
+      },
+    ],
+  },
+);
 
 export const awsLabBySlug = (slug: string) => AWS_LABS.find((l) => l.slug === slug);

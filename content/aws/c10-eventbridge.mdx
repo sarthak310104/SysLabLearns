@@ -1,0 +1,150 @@
+So far, everything you built ran because something asked: you invoked a function, a message arrived, someone called your API. Two kinds of work don't fit that:
+
+- **Scheduled** work: "send the daily report at 9", "clean up old carts every night".
+- **Reacting to things happening elsewhere**: "when an order over 1,000 is placed, alert the fraud team".
+
+**EventBridge** does both. You write a **rule**: either a **schedule**, or an **event pattern** that picks out the events you care about. The rule has **targets**: what to run or notify when it fires.
+
+## A function to run
+
+The same setup as lesson C7: a role Lambda can take on, with permission to write logs.
+
+<Cmd>{`echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' > trust.json`}</Cmd>
+
+<Cmd>aws iam create-role --role-name report-role --assume-role-policy-document file://trust.json</Cmd>
+
+<Cmd>aws iam attach-role-policy --role-name report-role --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole</Cmd>
+
+<CodeFile name="report.mjs">
+
+```js
+export const handler = async (event) => {
+  // A scheduled event says when it was meant to fire in event.time.
+  console.log("report for", event.time);
+  return "done";
+};
+```
+
+</CodeFile>
+
+<Cmd>zip report.zip report.mjs</Cmd>
+
+<Cmd>aws lambda create-function --function-name nightly-report --runtime nodejs20.x --handler report.handler --role arn:aws:iam::123456789012:role/report-role --zip-file fileb://report.zip</Cmd>
+
+<Cmd>aws lambda wait function-active-v2 --function-name nightly-report</Cmd>
+
+## A schedule
+
+Schedules come in two forms:
+
+- `rate(5 minutes)`: every so often. One unit is singular (`rate(1 hour)`), more is plural (`rate(2 hours)`).
+- `cron(minutes hours day-of-month month day-of-week year)`: at set times, always in **UTC**.
+
+Start with every five minutes, so you can watch it work:
+
+<Cmd>aws events put-rule --name every-5-minutes --schedule-expression "rate(5 minutes)"</Cmd>
+
+Point it at the function. Each target has an `Id` you choose and the `Arn` of what to run:
+
+<Cmd>aws events put-targets --rule every-5-minutes --targets Id=report,Arn=arn:aws:lambda:ap-south-1:123456789012:function:nightly-report</Cmd>
+
+Nobody wants to wait ten real minutes, so this terminal's `sleep` moves the clock forward instantly:
+
+<Cmd>sleep 600</Cmd>
+
+Two runs should have happened. Check the function's logs:
+
+<Cmd>aws logs tail /aws/lambda/nightly-report</Cmd>
+
+No log group at all: the function never ran. When something silently doesn't run, look at its **metrics**. CloudWatch counts how often each rule fired and failed:
+
+<Cmd>aws cloudwatch get-metric-statistics --namespace AWS/Events --metric-name FailedInvocations --dimensions Name=RuleName,Value=every-5-minutes --statistics Sum --period 3600 --start-time 2026-01-01T00:00:00Z --end-time 2030-01-01T00:00:00Z</Cmd>
+
+Two failed invocations. The rule fired on time, but EventBridge isn't allowed to call your function. You met this in lesson C8 with API Gateway: a function's **resource policy** says which services may invoke it. Add EventBridge, for this one rule only:
+
+<Cmd>aws lambda add-permission --function-name nightly-report --statement-id events --action lambda:InvokeFunction --principal events.amazonaws.com --source-arn arn:aws:events:ap-south-1:123456789012:rule/every-5-minutes</Cmd>
+
+<Cmd>sleep 600</Cmd>
+
+<Cmd>aws logs tail /aws/lambda/nightly-report</Cmd>
+
+Two runs, each logging the time it was scheduled for.
+
+<Note>
+The AWS console adds this permission for you when you pick a Lambda target there. From the CLI, or from infrastructure code, you add it yourself, and forgetting it is one of the most common reasons a schedule "does nothing".
+</Note>
+
+## Cron, and time zones
+
+Cron times are in UTC. India is 5 hours 30 minutes ahead, so 9:00 in the morning in India is 03:30 UTC. Weekdays at 9:00 IST:
+
+<Cmd>aws events put-rule --name weekday-mornings --schedule-expression "cron(30 3 ? * MON-FRI *)"</Cmd>
+
+The `?` means "no particular value": you set either day-of-month or day-of-week, and put `?` in the other. Small mistakes are rejected right away, which is a good thing. Try this one:
+
+<Cmd>aws events put-rule --name typo --schedule-expression "rate(1 minutes)"</Cmd>
+
+Turn the five-minute rule off now, so it doesn't keep running:
+
+<Cmd>aws events disable-rule --name every-5-minutes</Cmd>
+
+## Reacting to events
+
+Every AWS service sends events to EventBridge, and your own code can too. An **event** is JSON with a few standard fields: `source` (who sent it), `detail-type` (what kind of event) and `detail` (anything you like).
+
+A rule with an **event pattern** forwards only matching events. This one wants orders from your shop with a total of 1,000 or more:
+
+<CodeFile name="pattern.json">
+
+```json
+{
+  "source": ["shop.orders"],
+  "detail-type": ["OrderPlaced"],
+  "detail": { "total": [{ "numeric": [">=", 1000] }] }
+}
+```
+
+</CodeFile>
+
+Each field lists the values it accepts. Fields you don't mention can be anything. Send matches to a queue for the fraud team:
+
+<Cmd>aws sqs create-queue --queue-name big-orders</Cmd>
+
+<Cmd>aws events put-rule --name big-orders --event-pattern file://pattern.json</Cmd>
+
+<Cmd>aws events put-targets --rule big-orders --targets Id=queue,Arn=arn:aws:sqs:ap-south-1:123456789012:big-orders</Cmd>
+
+Now be the shop: send two order events, one small and one big. `Detail` is JSON written inside a string, which is why its quotes are escaped:
+
+<CodeFile name="orders.json">
+
+```json
+[
+  { "Source": "shop.orders", "DetailType": "OrderPlaced", "Detail": "{\"id\":\"o-1\",\"total\":250}" },
+  { "Source": "shop.orders", "DetailType": "OrderPlaced", "Detail": "{\"id\":\"o-2\",\"total\":4500}" }
+]
+```
+
+</CodeFile>
+
+<Cmd>aws events put-events --entries file://orders.json</Cmd>
+
+<Cmd>aws sqs receive-message --queue-url https://sqs.ap-south-1.amazonaws.com/123456789012/big-orders --query 'Messages[].Body' --output text</Cmd>
+
+Only order `o-2` arrived. The shop didn't need to know the fraud team exists; it just announced an order. That's the same idea as SNS (lesson C5), with filtering on the content itself.
+
+<Goals />
+
+<Floci>{`aws events put-rule --name every-5-minutes --schedule-expression "rate(5 minutes)"
+aws events put-targets --rule every-5-minutes --targets Id=report,Arn=arn:aws:lambda:ap-south-1:000000000000:function:nightly-report
+# Floci emulates EventBridge (and EventBridge Scheduler). Its clock is real,
+# so wait five real minutes rather than using sleep.`}</Floci>
+
+## What to remember
+
+- A rule fires on a schedule (`rate` or `cron`, in UTC) or when an event matches its pattern.
+- Lambda targets need a resource policy that allows `events.amazonaws.com`.
+- When something doesn't run, check the rule's `FailedInvocations` metric.
+- Event patterns let producers announce things without knowing who listens.
+
+<Quiz />

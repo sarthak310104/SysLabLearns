@@ -1,0 +1,178 @@
+Placing an order takes several steps: check the item is in stock, charge the card, wait for the warehouse to pack it. Each step can fail, and each failure needs a different response. You *could* write one big Lambda function that calls everything in turn, with `try`/`catch` and retries sprinkled through it. Then it times out halfway, and nobody can tell which steps already happened.
+
+**Step Functions** takes the flow out of your code. You draw the steps as a **state machine**: a set of named **states**, and which state comes next. AWS runs it, remembers where each order is, retries what you tell it to, and keeps a full history of every run.
+
+```
+CheckStock -> InStock? --yes--> ChargeCard --> WaitForPacking --> Done
+                  |                 |
+                  no            card declined
+                  v                 v
+              OutOfStock       PaymentFailed
+```
+
+## The steps, as functions
+
+Two small functions do the real work. One file can hold both; the `--handler` picks which export each function runs.
+
+<CodeFile name="steps.mjs">
+
+```js
+export const checkStock = async (order) => {
+  return { available: order.item !== "teapot", left: 12 };
+};
+
+export const chargeCard = async (order) => {
+  if (order.amount > 5000) {
+    const e = new Error("The bank declined a charge of " + order.amount);
+    e.name = "CardDeclined"; // the error's name is what the state machine sees
+    throw e;
+  }
+  return { charged: order.amount, receipt: "r-" + order.item };
+};
+```
+
+</CodeFile>
+
+<Cmd>{`echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' > trust.json`}</Cmd>
+
+<Cmd>aws iam create-role --role-name order-fn-role --assume-role-policy-document file://trust.json</Cmd>
+
+<Cmd>aws iam attach-role-policy --role-name order-fn-role --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole</Cmd>
+
+<Cmd>zip steps.zip steps.mjs</Cmd>
+
+<Cmd>aws lambda create-function --function-name order-check-stock --runtime nodejs20.x --handler steps.checkStock --role arn:aws:iam::123456789012:role/order-fn-role --zip-file fileb://steps.zip</Cmd>
+
+<Cmd>aws lambda create-function --function-name order-charge-card --runtime nodejs20.x --handler steps.chargeCard --role arn:aws:iam::123456789012:role/order-fn-role --zip-file fileb://steps.zip</Cmd>
+
+<Cmd>aws lambda wait function-active-v2 --function-name order-charge-card</Cmd>
+
+## The state machine
+
+State machines are written in **Amazon States Language**: JSON with a `StartAt` and a list of `States`. Read this one top to bottom; the notes after it explain each part.
+
+<CodeFile name="order-flow.json">
+
+```json
+{
+  "Comment": "Place an order",
+  "StartAt": "CheckStock",
+  "States": {
+    "CheckStock": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:ap-south-1:123456789012:function:order-check-stock",
+      "ResultPath": "$.stock",
+      "Next": "InStock?"
+    },
+    "InStock?": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.stock.available", "BooleanEquals": true, "Next": "ChargeCard" }],
+      "Default": "OutOfStock"
+    },
+    "OutOfStock": { "Type": "Fail", "Error": "OutOfStock", "Cause": "Not enough left" },
+    "ChargeCard": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:ap-south-1:123456789012:function:order-charge-card",
+      "ResultPath": "$.payment",
+      "Retry": [{ "ErrorEquals": ["PaymentServiceBusy"], "IntervalSeconds": 2, "MaxAttempts": 3, "BackoffRate": 2 }],
+      "Catch": [{ "ErrorEquals": ["CardDeclined"], "ResultPath": "$.error", "Next": "PaymentFailed" }],
+      "Next": "WaitForPacking"
+    },
+    "PaymentFailed": { "Type": "Fail", "Error": "PaymentFailed", "Cause": "The card was declined" },
+    "WaitForPacking": { "Type": "Wait", "Seconds": 60, "Next": "Done" },
+    "Done": { "Type": "Succeed" }
+  }
+}
+```
+
+</CodeFile>
+
+- A **Task** does work, here by calling a Lambda function with the current data.
+- `"ResultPath": "$.stock"` keeps the input and adds the function's answer under `stock`. Without it, the answer would *replace* the data, and the next step would no longer know which item was ordered.
+- A **Choice** picks the next state by looking at the data, like an `if`.
+- **Retry** says which errors are worth trying again (a busy payment service), how long to wait, and how many times. **Catch** says where to go for errors that retrying won't fix (a declined card).
+- **Wait** pauses the run, **Succeed** and **Fail** end it.
+
+## A role for the state machine
+
+The state machine calls your functions, so it needs its own role, one that Step Functions (`states.amazonaws.com`) can take on:
+
+<CodeFile name="sfn-trust.json">
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{ "Effect": "Allow", "Principal": { "Service": "states.amazonaws.com" }, "Action": "sts:AssumeRole" }]
+}
+```
+
+</CodeFile>
+
+<Cmd>aws iam create-role --role-name order-flow-role --assume-role-policy-document file://sfn-trust.json</Cmd>
+
+<Cmd>aws stepfunctions create-state-machine --name order-flow --definition file://order-flow.json --role-arn arn:aws:iam::123456789012:role/order-flow-role</Cmd>
+
+## Run it
+
+Each run is an **execution**, started with some input:
+
+<Cmd>{`EXEC=$(aws stepfunctions start-execution --state-machine-arn arn:aws:states:ap-south-1:123456789012:stateMachine:order-flow --input '{"item":"mug","amount":499}' --query executionArn --output text)`}</Cmd>
+
+<Cmd>aws stepfunctions describe-execution --execution-arn $EXEC</Cmd>
+
+`FAILED`, with error `Lambda.AWSLambdaException`. Read the `cause`: the role isn't authorized to perform `lambda:InvokeFunction`. The role exists, but it has no permissions yet. Allow it to invoke the order functions, and nothing else:
+
+<Cmd>{`aws iam put-role-policy --role-name order-flow-role --policy-name invoke-order-steps --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"lambda:InvokeFunction","Resource":"arn:aws:lambda:ap-south-1:123456789012:function:order-*"}]}'`}</Cmd>
+
+Run it again:
+
+<Cmd>{`EXEC=$(aws stepfunctions start-execution --state-machine-arn arn:aws:states:ap-south-1:123456789012:stateMachine:order-flow --input '{"item":"mug","amount":499}' --query executionArn --output text)`}</Cmd>
+
+<Cmd>aws stepfunctions describe-execution --execution-arn $EXEC --query status</Cmd>
+
+`RUNNING`: it's in the Wait state, waiting for the warehouse. Move the clock on a minute and look again:
+
+<Cmd>sleep 60</Cmd>
+
+<Cmd>aws stepfunctions describe-execution --execution-arn $EXEC</Cmd>
+
+`SUCCEEDED`, and the `output` holds everything collected along the way: the order, the stock check and the payment. The **history** shows each step it took:
+
+<Cmd>aws stepfunctions get-execution-history --execution-arn $EXEC --query 'events[].type' --output text</Cmd>
+
+## The other paths
+
+A big order the bank declines takes the Catch:
+
+<Cmd>{`EXEC=$(aws stepfunctions start-execution --state-machine-arn arn:aws:states:ap-south-1:123456789012:stateMachine:order-flow --input '{"item":"mug","amount":9000}' --query executionArn --output text)`}</Cmd>
+
+<Cmd>aws stepfunctions describe-execution --execution-arn $EXEC --query '[status,error,cause]'</Cmd>
+
+And an item that's out of stock goes the other way at the Choice:
+
+<Cmd>{`EXEC=$(aws stepfunctions start-execution --state-machine-arn arn:aws:states:ap-south-1:123456789012:stateMachine:order-flow --input '{"item":"teapot","amount":900}' --query executionArn --output text)`}</Cmd>
+
+<Cmd>aws stepfunctions describe-execution --execution-arn $EXEC --query '[status,error]'</Cmd>
+
+Every run is kept, so you can always answer "what happened to order X?":
+
+<Cmd>aws stepfunctions list-executions --state-machine-arn arn:aws:states:ap-south-1:123456789012:stateMachine:order-flow --query 'executions[].[name,status]' --output text</Cmd>
+
+<Note>
+Step Functions can also call many AWS services directly, without a Lambda function in between: for example `arn:aws:states:::dynamodb:putItem` to save the order, or `arn:aws:states:::sqs:sendMessage` to queue it. Less code to maintain, but the state machine's role then needs permission for those services too.
+</Note>
+
+<Goals />
+
+<Floci>{`aws iam create-role --role-name order-flow-role --assume-role-policy-document file://sfn-trust.json
+aws stepfunctions create-state-machine --name order-flow --definition file://order-flow.json --role-arn arn:aws:iam::000000000000:role/order-flow-role
+# Floci emulates Step Functions. Change the account id in order-flow.json to 000000000000 first.`}</Floci>
+
+## What to remember
+
+- A state machine describes the flow; your functions do the work in each step.
+- `ResultPath` decides where a step's result goes. Usually you want to add to the data, not replace it.
+- Retry the errors that might go away; Catch the ones that won't, and send them somewhere sensible.
+- The state machine runs as its own role, which needs permission to call each step.
+
+<Quiz />

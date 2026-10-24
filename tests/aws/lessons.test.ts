@@ -17,6 +17,10 @@ const INTENDED: Record<string, RegExp[]> = {
   "c6-dynamodb": [/--condition-expression/],
   "c7-lambda": [],
   "c8-serverless-api": [/^curl https:\/\/\$API/, /^curl -X POST/],
+  "c9-websites": [/^curl https:\/\/\$CF$/],
+  "c10-eventbridge": [/aws logs tail \/aws\/lambda\/nightly-report/, /rate\(1 minutes\)/],
+  "c11-step-functions": [],
+  "c12-mystery": [/aws lambda invoke --function-name save-order/, /aws lambda get-policy --function-name nightly-cleanup/],
 };
 
 type Item = { kind: "cmd"; text: string } | { kind: "file"; name: string; text: string };

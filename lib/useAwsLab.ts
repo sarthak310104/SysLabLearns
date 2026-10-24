@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AwsCommand, AwsReply } from "@/engine/awsWorker";
 import type { ExecResult } from "@/engine/aws/shell";
-import { freshState, type AwsState } from "@/engine/aws/state";
+import { freshState, upgradeState, type AwsState } from "@/engine/aws/state";
 import type { HistoryEntry } from "@/content/aws/labs";
 import { loadAwsAccount, saveAwsAccount } from "./progress";
 
@@ -81,7 +81,7 @@ export function useAwsLab() {
     let alive = true;
     loadAwsAccount().then((saved) => {
       if (!alive) return;
-      const s = (saved?.state as AwsState | undefined)?.version === 1 ? (saved!.state as AwsState) : freshState();
+      const s = (saved?.state as AwsState | undefined)?.version === 1 ? upgradeState(saved!.state as AwsState) : freshState();
       historyRef.current = (saved?.history as HistoryEntry[] | undefined) ?? [];
       setHistory(historyRef.current);
       // Show the end of the last session, so a reload doesn't lose your place.

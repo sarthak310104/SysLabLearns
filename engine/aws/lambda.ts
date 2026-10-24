@@ -740,6 +740,16 @@ export function lambdaService(rt: Runtime & { invokeFull: (s: AwsState, a: strin
             .map((m) => ({ UUID: m.uuid, BatchSize: m.batchSize, EventSourceArn: m.sourceArn, FunctionArn: m.functionArn, LastModified: iso(m.createdAt), State: m.enabled ? "Enabled" : "Disabled", StateTransitionReason: "USER_INITIATED" })),
         };
       },
+      "update-event-source-mapping": (c) => {
+        const id = c.str("uuid", true);
+        const m = c.state.lambda.mappings.find((x) => x.uuid === id);
+        if (!m) throw c.error("ResourceNotFoundException", "The resource you requested does not exist.");
+        if (c.bool("enabled")) m.enabled = true;
+        if (c.bool("no-enabled")) m.enabled = false;
+        const size = c.int("batch-size");
+        if (size !== undefined) m.batchSize = size;
+        return { UUID: m.uuid, BatchSize: m.batchSize, EventSourceArn: m.sourceArn, FunctionArn: m.functionArn, LastModified: iso(now(c.state)), State: m.enabled ? "Enabling" : "Disabling", StateTransitionReason: "USER_INITIATED" };
+      },
       "delete-event-source-mapping": (c) => {
         const id = c.str("uuid", true);
         const m = c.state.lambda.mappings.find((x) => x.uuid === id);

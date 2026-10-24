@@ -989,4 +989,132 @@ export const QUIZZES: Record<string, Question[]> = {
       explain: "Serverless removes server work and scales on its own, but each request is billed and new copies start cold.",
     },
   ],
+  "c9-websites": [
+    {
+      q: "You turn on static website hosting, and the website address answers 403 Forbidden. Why?",
+      options: ["Website hosting takes an hour to start", "The objects aren't publicly readable: the bucket is still private", "index.html is missing", "Website endpoints need HTTPS"],
+      answer: 1,
+      explain: "Website hosting only changes how S3 answers. Who may read is still decided by the public access block and the bucket policy.",
+    },
+    {
+      q: "Your public-read policy has Resource arn:aws:s3:::my-site (no /*). What happens?",
+      options: ["Everything works", "Still 403: the policy covers the bucket itself, not the objects in it", "Only index.html is readable", "The policy is rejected"],
+      answer: 1,
+      explain: "s3:GetObject applies to objects, which are named arn:aws:s3:::my-site/key. Without /* the statement never matches a read.",
+    },
+    {
+      q: "What does an origin access control (OAC) give you?",
+      options: ["Faster caching", "CloudFront can read a bucket that stays private, and nothing else can", "Free HTTPS certificates", "Automatic invalidations"],
+      answer: 1,
+      explain: "CloudFront signs its requests as itself, so the bucket policy can allow only your distribution and block everyone else.",
+    },
+    {
+      q: "You upload a new index.html, but the site still shows the old one with x-cache: Hit. What's going on?",
+      options: ["The upload failed", "The edge location is serving its cached copy until it expires or you invalidate it", "S3 versioning is on", "The OAC is wrong"],
+      answer: 1,
+      explain: "A cache keeps answering from its copy. Invalidate the path (or give changed files new names) to make edges fetch the new version.",
+    },
+    {
+      q: "Why does update-distribution need --if-match with the ETag?",
+      options: ["To prove you own the account", "So two people changing the same distribution can't silently overwrite each other's changes", "It sets the cache time", "It's only needed for HTTPS"],
+      answer: 1,
+      explain: "The ETag is the version you read. If the configuration changed since, the update is refused instead of throwing away someone else's change.",
+    },
+  ],
+  "c10-eventbridge": [
+    {
+      q: "A rate(5 minutes) rule targets a Lambda function, but the function's logs are empty after an hour. What do you check first?",
+      options: ["The function's memory", "The rule's FailedInvocations metric, then whether the function allows events.amazonaws.com to invoke it", "Whether SQS is enabled", "The function's timeout"],
+      answer: 1,
+      explain: "No logs usually means the function never ran. If the rule fired but failed to invoke, it's almost always the missing resource policy.",
+    },
+    {
+      q: "You want a job at 9:00 every weekday in India (UTC+5:30). Which schedule?",
+      options: ["cron(0 9 ? * MON-FRI *)", "cron(30 3 ? * MON-FRI *)", "rate(1 day)", "cron(30 14 * * ? *)"],
+      answer: 1,
+      explain: "EventBridge cron runs in UTC. 9:00 IST is 03:30 UTC.",
+    },
+    {
+      q: "Why is rate(1 minutes) rejected?",
+      options: ["Schedules can't run every minute", "One unit is singular: rate(1 minute)", "rate needs seconds", "It must be cron"],
+      answer: 1,
+      explain: "EventBridge is strict: 1 takes the singular unit, anything more takes the plural.",
+    },
+    {
+      q: 'A pattern says {"source":["shop.orders"],"detail":{"total":[{"numeric":[">=",1000]}]}}. Which event matches?',
+      options: ["source shop.orders, total 250", "source shop.orders, total 4500", "source shop.payments, total 4500", "Any event with a total"],
+      answer: 1,
+      explain: "Every field in the pattern must match: the right source and a total of at least 1,000.",
+    },
+    {
+      q: "What's the advantage of the shop sending events to EventBridge rather than calling the fraud service directly?",
+      options: ["It's cheaper per call", "The shop doesn't need to know who listens: new listeners are just new rules", "Events are encrypted", "It makes calls synchronous"],
+      answer: 1,
+      explain: "Producers announce what happened; rules decide who cares. Adding a consumer doesn't change the producer.",
+    },
+  ],
+  "c11-step-functions": [
+    {
+      q: "A Task's ResultPath is \"$.stock\". What does the next state receive?",
+      options: ["Only the function's result", "The original input, with the function's result added under stock", "Nothing", "Only the stock field of the input"],
+      answer: 1,
+      explain: "ResultPath decides where the result goes. $.stock adds it to the data; leaving it out would replace the data with the result.",
+    },
+    {
+      q: "The first execution fails with Lambda.AWSLambdaException: not authorized to perform lambda:InvokeFunction. What's missing?",
+      options: ["The functions' own roles need more permissions", "The state machine's role needs lambda:InvokeFunction on the functions", "An event source mapping", "A resource policy for events.amazonaws.com"],
+      answer: 1,
+      explain: "The state machine calls the functions as its own role, and that role starts with no permissions.",
+    },
+    {
+      q: "Which errors belong in Retry rather than Catch?",
+      options: ["Errors that retrying won't fix, like a declined card", "Errors that may go away on their own, like a busy service or a timeout", "All errors", "None: always Catch"],
+      answer: 1,
+      explain: "Retry transient failures with backoff. Catch permanent ones and send the flow somewhere sensible.",
+    },
+    {
+      q: "Why is the execution RUNNING right after you start it, even though every function is quick?",
+      options: ["Lambda cold starts", "It's in the Wait state, paused for 60 seconds", "Step Functions is slow to start", "The role is still being created"],
+      answer: 1,
+      explain: "A Wait state pauses the run. Step Functions keeps track of it, so nothing has to stay running meanwhile.",
+    },
+    {
+      q: "What does Step Functions give you that one big function calling each step doesn't?",
+      options: ["Faster code", "A record of every run, declared retries and catches, and no single function that can time out halfway", "Lower Lambda prices", "Automatic HTTPS"],
+      answer: 1,
+      explain: "The flow and its failure handling are described, run and recorded by the service, so you can see where every order is and what happened to it.",
+    },
+  ],
+  "c12-mystery": [
+    {
+      q: "A website on S3 says 403, and the bucket policy allows s3:GetObject to everyone on arn:aws:s3:::acme-shop-site. What's wrong?",
+      options: ["Website hosting is off", "The resource names the bucket, not the objects: it needs /*", "The public access block is on", "index.html is missing"],
+      answer: 1,
+      explain: "Objects are arn:aws:s3:::acme-shop-site/key. A statement without /* never matches a read.",
+    },
+    {
+      q: "Messages sit in a queue, and the Lambda function that should read them has no new logs. Where do you look first?",
+      options: ["The function's code", "The event source mapping: does it exist, and is it enabled?", "The DynamoDB table", "CloudFront"],
+      answer: 1,
+      explain: "No logs means no runs. The thing that starts the runs is the trigger, so check it before the code.",
+    },
+    {
+      q: "The function errors with AccessDeniedException for dynamodb:PutItem on table/Orders, but its policy allows PutItem. What do you compare?",
+      options: ["The function's memory and timeout", "The policy's Resource with the exact table ARN in the error", "The region of the CLI", "The queue's visibility timeout"],
+      answer: 1,
+      explain: "Policies match resources exactly. table/Order and table/Orders are different tables.",
+    },
+    {
+      q: "A scheduled rule shows FailedInvocations every night and the target function has no resource policy. What fixes it?",
+      options: ["Enable the rule", "Give the function's role more permissions", "aws lambda add-permission allowing events.amazonaws.com (for that rule)", "Recreate the function"],
+      answer: 2,
+      explain: "Who may invoke a function is the function's resource policy, not its role. EventBridge needs to be in it.",
+    },
+    {
+      q: "You enabled the event source mapping before fixing the role. What happens to the waiting orders?",
+      options: ["They're saved", "The function runs, fails on PutItem, and the messages come back after the visibility timeout (or reach a dead-letter queue)", "They're deleted", "Nothing: the mapping ignores old messages"],
+      answer: 1,
+      explain: "Failed batches aren't deleted. They reappear and are retried, so fixing the role afterwards still saves them, as long as they don't run out of retries.",
+    },
+  ],
 };

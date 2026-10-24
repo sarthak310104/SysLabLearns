@@ -1,0 +1,162 @@
+You've stored files in S3 (lesson C2). A website is just files: an HTML page, some images, maybe a stylesheet. So S3 can serve a whole website, and lots of real sites (docs, landing pages, single-page apps) run exactly like that. In this lesson you'll put a site online two ways, and see why the second way is the one people use.
+
+```
+Way 1:  browser  ->  S3 website endpoint            (simple, but the bucket must be public)
+Way 2:  browser  ->  CloudFront  ->  private bucket  (fast everywhere, HTTPS, bucket stays private)
+```
+
+## The pages
+
+Save these two files. The first is the home page, the second is what people see when they ask for a page that doesn't exist.
+
+<CodeFile name="index.html">
+
+```html
+<h1>Hello from my site</h1>
+```
+
+</CodeFile>
+
+<CodeFile name="error.html">
+
+```html
+<h1>Nothing here</h1>
+```
+
+</CodeFile>
+
+Make a bucket and upload them:
+
+<Cmd>aws s3 mb s3://yourname-site-2026</Cmd>
+
+<Cmd>aws s3 cp index.html s3://yourname-site-2026/</Cmd>
+
+<Cmd>aws s3 cp error.html s3://yourname-site-2026/</Cmd>
+
+## Way 1: S3's website endpoint
+
+Turn on **static website hosting**. You tell S3 which file is the home page (the **index document**) and which to show for missing pages (the **error document**):
+
+<Cmd>aws s3 website s3://yourname-site-2026 --index-document index.html --error-document error.html</Cmd>
+
+Now the bucket has a website address of its own. Visit it:
+
+<Cmd>curl http://yourname-site-2026.s3-website.ap-south-1.amazonaws.com</Cmd>
+
+403 Forbidden. Turning on website hosting doesn't change who's allowed to read the files, and buckets are private (lesson C2). A website endpoint only works if **everyone** may read the objects. That takes two changes: switch off the bucket's public access block, then add a policy that lets anyone (`"Principal":"*"`) read.
+
+<Cmd>aws s3api delete-public-access-block --bucket yourname-site-2026</Cmd>
+
+<Cmd>{`aws s3api put-bucket-policy --bucket yourname-site-2026 --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::yourname-site-2026/*"}]}'`}</Cmd>
+
+Notice the `/*` at the end of `Resource`: it means "every object in the bucket". Without it the policy would name the bucket itself, which isn't something you can read. Try again:
+
+<Cmd>curl http://yourname-site-2026.s3-website.ap-south-1.amazonaws.com</Cmd>
+
+And a page that doesn't exist gets your error page, with status 404 (`-i` shows the status line and headers):
+
+<Cmd>curl -i http://yourname-site-2026.s3-website.ap-south-1.amazonaws.com/missing.html</Cmd>
+
+It works, but there are three problems. The address is plain `http`, with no HTTPS. Every visitor, wherever they are, fetches from one bucket in Mumbai. And your bucket is now public to the whole internet, which is the setting behind many real data leaks.
+
+## Way 2: CloudFront in front
+
+**CloudFront** is AWS's **CDN** (content delivery network): hundreds of **edge locations** around the world that keep copies of your files near your visitors. The first visitor near an edge gets the file from your bucket (a **miss**); later visitors get the edge's copy (a **hit**), which is much faster.
+
+A CloudFront setup is called a **distribution**. Its **origin** is where it fetches from: your bucket's normal address (not the website one).
+
+<Cmd>D=$(aws cloudfront create-distribution --origin-domain-name yourname-site-2026.s3.ap-south-1.amazonaws.com --default-root-object index.html --query Distribution.Id --output text)</Cmd>
+
+`--default-root-object` is the page for the bare address, like the index document. Each distribution gets its own domain name ending in `cloudfront.net`, with HTTPS included:
+
+<Cmd>CF=$(aws cloudfront get-distribution --id $D --query Distribution.DomainName --output text)</Cmd>
+
+<Cmd>curl https://$CF</Cmd>
+
+"Could not resolve host": a new distribution takes a few minutes to reach every edge location, and until then its name doesn't exist yet. Wait for it:
+
+<Cmd>aws cloudfront wait distribution-deployed --id $D</Cmd>
+
+<Cmd>curl -i https://$CF</Cmd>
+
+Look at the `x-cache` header: **Miss from cloudfront**. Ask again:
+
+<Cmd>curl -i https://$CF</Cmd>
+
+**Hit from cloudfront**: this time the edge answered without asking your bucket.
+
+## Making the bucket private again
+
+Right now CloudFront reads the bucket the same way anyone else can: because it's public. The better setup is an **origin access control** (OAC). With one, CloudFront signs its requests to S3 as itself, and the bucket policy can allow *only* your distribution. Then the bucket can be fully private.
+
+Create the OAC:
+
+<Cmd>OAC=$(aws cloudfront create-origin-access-control --origin-access-control-config Name=site-oac,SigningProtocol=sigv4,SigningBehavior=always,OriginAccessControlOriginType=s3 --query OriginAccessControl.Id --output text)</Cmd>
+
+Changing a distribution works in three steps, the same in every real project: fetch its current configuration, change it, send it back. CloudFront also gives you an **ETag** (a version number for the configuration). You send it back with `--if-match` so that if someone else changed it in the meantime, your update is refused instead of overwriting theirs.
+
+<Cmd>ETAG=$(aws cloudfront get-distribution-config --id $D --query ETag --output text)</Cmd>
+
+<Cmd>aws cloudfront get-distribution-config --id $D --query DistributionConfig > dist.json</Cmd>
+
+Put the OAC's id into the origin. You could edit `dist.json` by hand (`edit dist.json`); here `jq` does it in one line:
+
+<Cmd>{`jq ".Origins.Items[0].OriginAccessControlId = \\"$OAC\\"" dist.json > dist-oac.json`}</Cmd>
+
+<Cmd>aws cloudfront update-distribution --id $D --if-match $ETAG --distribution-config file://dist-oac.json --query Distribution.Status</Cmd>
+
+Now replace the public bucket policy with one that allows only the CloudFront service, and only when the request comes from your distribution (the `Condition`):
+
+<Cmd>{`aws s3api put-bucket-policy --bucket yourname-site-2026 --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"cloudfront.amazonaws.com"},"Action":"s3:GetObject","Resource":"arn:aws:s3:::yourname-site-2026/*","Condition":{"StringEquals":{"AWS:SourceArn":"arn:aws:cloudfront::123456789012:distribution/'$D'"}}}]}'`}</Cmd>
+
+(The `'$D'` in the middle closes the single quotes for a moment so the shell can put your distribution id in.) Then switch the public access block back on:
+
+<Cmd>aws s3api put-public-access-block --bucket yourname-site-2026 --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true</Cmd>
+
+The S3 website address is closed again:
+
+<Cmd>curl http://yourname-site-2026.s3-website.ap-south-1.amazonaws.com</Cmd>
+
+## Updates and the cache
+
+Change the home page and upload it:
+
+<CodeFile name="index.html">
+
+```html
+<h1>Version two</h1>
+```
+
+</CodeFile>
+
+<Cmd>aws s3 cp index.html s3://yourname-site-2026/</Cmd>
+
+<Cmd>curl -i https://$CF</Cmd>
+
+Still the old page, and a **Hit**. The edge has a copy and keeps using it until it expires (a day, by default). That's the whole point of a cache, and it's also the most common "my change isn't live!" surprise. When you deploy, you tell CloudFront to drop its copies with an **invalidation**:
+
+<Cmd>{`aws cloudfront create-invalidation --distribution-id $D --paths "/*"`}</Cmd>
+
+<Cmd>curl -i https://$CF</Cmd>
+
+A **Miss**, the new page, and it came through the OAC from a private bucket.
+
+<Note>
+Invalidating everything (`/*`) on each deploy is fine for small sites. Bigger sites give files new names when they change (`app.3f9a1c.js`), so the old cached copy simply stops being asked for and no invalidation is needed.
+</Note>
+
+<Goals />
+
+<Floci>{`aws s3 mb s3://yourname-site-2026
+aws cloudfront create-distribution --origin-domain-name yourname-site-2026.s3.ap-south-1.amazonaws.com --default-root-object index.html
+# Floci lists CloudFront among its services. S3 website endpoints may not be emulated:
+# check its documentation if the s3-website address doesn't answer.`}</Floci>
+
+## What to remember
+
+- An S3 website endpoint serves a bucket as a site, but only if the bucket is public, and only over HTTP.
+- CloudFront caches your files at edge locations: faster for visitors, with HTTPS.
+- An origin access control lets CloudFront read a bucket that stays private.
+- Cached copies outlive your upload. Invalidate, or use new file names.
+
+<Quiz />

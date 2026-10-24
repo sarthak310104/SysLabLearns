@@ -227,7 +227,17 @@ class Parser {
       if (this.isOp(".")) {
         this.i++;
         if (this.isOp("{")) l = { k: "sub", l, r: this.hash() };
-        else {
+        else if (this.isOp("[")) {
+          // .[a, b]: a multiselect list on each element
+          this.i++;
+          const items: Node[] = [];
+          while (!this.isOp("]")) {
+            items.push(this.expr());
+            if (this.isOp(",")) this.i++;
+          }
+          this.eat("]");
+          l = { k: "sub", l, r: { k: "list", items } };
+        } else {
           const t = this.peek();
           if (t?.t !== "id") throw new UsageError(`Bad value for --query ${this.src}`);
           this.i++;

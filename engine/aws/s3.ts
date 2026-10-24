@@ -115,6 +115,43 @@ function isPublicPolicy(doc: string): boolean {
   return statements(d).some((st) => st.Effect === "Allow" && (st.Principal === "*" || (st.Principal as { AWS?: unknown })?.AWS === "*"));
 }
 
+/**
+ * CloudFront reading through an origin access control: the bucket policy must
+ * allow the cloudfront.amazonaws.com service, usually only for one
+ * distribution (Condition on AWS:SourceArn).
+ */
+export function cloudfrontCanRead(b: S3Bucket, key: string, distributionArn: string): boolean {
+  if (!b.policy) return false;
+  const d = safeParse(b.policy);
+  if (!d) return false;
+  const res = arn.s3Object(b.name, key);
+  let allowed = false;
+  for (const st of statements(d)) {
+    const pr = st.Principal as { Service?: string | string[] } | string | undefined;
+    const services = pr && typeof pr === "object" ? (Array.isArray(pr.Service) ? pr.Service : pr.Service ? [pr.Service] : []) : [];
+    const applies = pr === "*" || (pr as { AWS?: unknown })?.AWS === "*" || services.includes("cloudfront.amazonaws.com");
+    if (!applies) continue;
+    const actions = Array.isArray(st.Action) ? st.Action : [st.Action ?? ""];
+    const resources = Array.isArray(st.Resource) ? st.Resource : [st.Resource ?? ""];
+    if (!actions.some((a) => wildcard(a, "s3:GetObject", true))) continue;
+    if (!resources.some((r) => wildcard(r, res))) continue;
+    const cond = st.Condition as Record<string, Record<string, string | string[]>> | undefined;
+    if (cond) {
+      const ok = Object.entries(cond).every(([op, kv]) =>
+        Object.entries(kv).every(([k, v]) => {
+          if (k.toLowerCase() !== "aws:sourcearn") return true;
+          const vs = Array.isArray(v) ? v : [v];
+          return op.startsWith("ArnLike") || op.startsWith("StringLike") ? vs.some((x) => wildcard(x, distributionArn)) : vs.includes(distributionArn);
+        }),
+      );
+      if (!ok) continue;
+    }
+    if (st.Effect === "Deny") return false;
+    allowed = true;
+  }
+  return allowed;
+}
+
 /** Anonymous access through a bucket policy, as used by `curl https://bucket.s3...`. */
 export function publicCanRead(b: S3Bucket, key: string): boolean {
   if (!b.policy || b.publicAccessBlock.RestrictPublicBuckets) return false;
@@ -367,6 +404,16 @@ const s3: Service = {
       }
       return text(lines.join("\n") + (lines.length ? "\n" : ""));
     },
+    website: (c) => {
+      const p = parseUri(c.positionals[0] ?? "");
+      if (!p) throw new UsageError("the following arguments are required: paths (like s3://my-bucket-name)");
+      const b = getBucket(c, p.bucket);
+      c.authorize("s3:PutBucketWebsite", arn.s3Bucket(b.name));
+      const index = c.str("index-document");
+      if (!index) throw new UsageError("aws s3 website needs --index-document (for example index.html)");
+      b.website = { index, ...(c.str("error-document") ? { error: c.str("error-document") } : {}) };
+      return text("");
+    },
     presign: (c) => {
       const p = parseUri(c.positionals[0] ?? "");
       if (!p || !p.key) throw new UsageError("the following arguments are required: path (s3://bucket/key)");
@@ -560,6 +607,24 @@ const s3api: Service = {
       const b = getBucket(c, c.str("bucket", true));
       c.authorize("s3:PutBucketPublicAccessBlock", arn.s3Bucket(b.name));
       b.publicAccessBlock = { BlockPublicAcls: false, IgnorePublicAcls: false, BlockPublicPolicy: false, RestrictPublicBuckets: false };
+    },
+    "put-bucket-website": (c) => {
+      const b = getBucket(c, c.str("bucket", true));
+      c.authorize("s3:PutBucketWebsite", arn.s3Bucket(b.name));
+      const cfg = c.structured("website-configuration", true) as { IndexDocument?: { Suffix?: string }; ErrorDocument?: { Key?: string } };
+      if (!cfg?.IndexDocument?.Suffix) throw c.error("InvalidArgument", "A value for IndexDocument Suffix must be provided if RedirectAllRequestsTo is empty");
+      b.website = { index: cfg.IndexDocument.Suffix, ...(cfg.ErrorDocument?.Key ? { error: cfg.ErrorDocument.Key } : {}) };
+    },
+    "get-bucket-website": (c) => {
+      const b = getBucket(c, c.str("bucket", true));
+      c.authorize("s3:GetBucketWebsite", arn.s3Bucket(b.name));
+      if (!b.website) throw c.error("NoSuchWebsiteConfiguration", "The specified bucket does not have a website configuration");
+      return { IndexDocument: { Suffix: b.website.index }, ...(b.website.error ? { ErrorDocument: { Key: b.website.error } } : {}) };
+    },
+    "delete-bucket-website": (c) => {
+      const b = getBucket(c, c.str("bucket", true));
+      c.authorize("s3:DeleteBucketWebsite", arn.s3Bucket(b.name));
+      delete b.website;
     },
     "put-bucket-versioning": (c) => {
       const b = getBucket(c, c.str("bucket", true));

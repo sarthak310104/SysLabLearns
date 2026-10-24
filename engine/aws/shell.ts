@@ -6,7 +6,11 @@ import { jmes } from "./jmes";
 import { apigwService, createRuntime, DDB_CONVERT, httpToApi, isZip, lambdaService, logsService, makeZip, pump, readZip } from "./lambda";
 import { MESSAGING_SERVICES } from "./messaging";
 import { presign, publicCanRead, S3_SERVICES, signature } from "./s3";
-import { ACCOUNT_ID, HOME, md5, now, REGION, type AwsState } from "./state";
+import { ACCOUNT_ID, HOME, md5, now, REGION, upgradeState, type AwsState } from "./state";
+import { CLOUDFRONT_SERVICES, cloudfrontHttp, NotResolvable, websiteHttp } from "./cloudfront";
+import { cloudwatchService, eventsService, tickEvents } from "./events";
+import { stepFunctionsService } from "./stepfunctions";
+import { MYSTERIES } from "./mysteries";
 
 DDB_CONVERT.marshallItem = marshallItem as never;
 DDB_CONVERT.unmarshallItem = unmarshallItem as never;
@@ -128,6 +132,7 @@ export class AwsLab {
   lastCode = 0;
 
   constructor(public state: AwsState) {
+    upgradeState(state);
     this.rt = createRuntime(
       () => this.services,
       () => this.io,
@@ -140,6 +145,10 @@ export class AwsLab {
       lambda: lambdaService(this.rt),
       logs: logsService,
       apigatewayv2: apigwService,
+      ...CLOUDFRONT_SERVICES,
+      events: eventsService(this.rt),
+      cloudwatch: cloudwatchService,
+      stepfunctions: stepFunctionsService(this.rt, () => this.services),
     };
   }
 
@@ -211,14 +220,16 @@ export class AwsLab {
       result.code = r.code;
       prevOp = op;
     }
-    // Anything triggered by this command (SQS -> Lambda) runs now.
+    // Anything triggered by this command (SQS -> Lambda, schedules that came due) runs now.
+    await tickEvents(this.state, this.rt);
     await pump(this.state, this.rt);
     return result;
   }
 
   /** Background work between commands: deliver queued messages to functions. */
   async tick(): Promise<boolean> {
-    return pump(this.state, this.rt);
+    const fired = await tickEvents(this.state, this.rt);
+    return (await pump(this.state, this.rt)) || fired;
   }
 
   private async pipeline(cmd: string): Promise<ExecResult> {
@@ -625,6 +636,25 @@ export class AwsLab {
         } catch {
           return err("jq: error (at <stdin>:0): Cannot parse input as JSON\n", 2);
         }
+        // Assignment: .Path.To[0].Field = "value" (any JSON on the right), printing the whole changed document.
+        const assign = filter.match(/^\s*(\.[A-Za-z0-9_.[\]]+?)\s*=\s*(?!=)(.+)$/s);
+        if (assign) {
+          let value: unknown;
+          try {
+            value = JSON.parse(assign[2].trim());
+          } catch {
+            return err(`jq: error: the right side of = must be JSON, like "text", 42, true or {"a":1}\n`, 3);
+          }
+          const keys = [...assign[1].matchAll(/\.([A-Za-z0-9_]+)|\[(\d+)\]/g)].map((m) => (m[1] !== undefined ? m[1] : Number(m[2])));
+          let cur = data as Record<string | number, unknown>;
+          for (let i = 0; i < keys.length - 1; i++) {
+            if (cur[keys[i]] === undefined || cur[keys[i]] === null) cur[keys[i]] = typeof keys[i + 1] === "number" ? [] : {};
+            cur = cur[keys[i]] as Record<string | number, unknown>;
+            if (typeof cur !== "object") return err(`jq: error: cannot index into ${JSON.stringify(cur)}\n`, 5);
+          }
+          cur[keys[keys.length - 1]] = value;
+          return out(JSON.stringify(data, null, 2) + "\n");
+        }
         const q = filter === "." ? "@" : filter.replace(/^\./, "").replace(/\.\[/g, "[").replace(/^\[\]/, "[]");
         let v: unknown;
         try {
@@ -649,6 +679,8 @@ export class AwsLab {
       }
       case "curl":
         return this.curl(args);
+      case "lab-setup":
+        return this.labSetup(plain[0]);
       case "help":
         return out(HELP);
       case "history":
@@ -666,6 +698,26 @@ export class AwsLab {
       default:
         return err(`bash: ${cmd}: command not found\n`, 127);
     }
+  }
+
+  /* ---------------- lab-setup ---------------- */
+
+  /** Builds one of the ready-made broken accounts (a lab-only command, not part of real AWS). */
+  private async labSetup(name: string | undefined): Promise<ExecResult> {
+    const m = name ? MYSTERIES[name] : undefined;
+    if (!m) return { chunks: [{ text: `lab-setup: choose one of: ${Object.keys(MYSTERIES).join(", ")}\n`, stream: "err" }], code: 2 };
+    if (this.state.s3.buckets["acme-shop-site"]) {
+      return { chunks: [{ text: "lab-setup: this account already has the broken shop in it. To start over, use Reset account in the panel below, then run this again.\n", stream: "err" }], code: 1 };
+    }
+    Object.assign(this.state.files, m.files);
+    const failed: string[] = [];
+    for (const cmd of m.commands) {
+      const r = await this.exec(cmd);
+      if (r.code !== 0) failed.push(`${cmd}\n${r.chunks.map((c) => c.text).join("")}`);
+    }
+    m.after(this.state);
+    if (failed.length) return { chunks: [{ text: `lab-setup: something went wrong while building it:\n${failed.join("\n")}`, stream: "err" }], code: 1 };
+    return { chunks: [{ text: m.report, stream: "out" }], code: 0 };
   }
 
   /* ---------------- curl ---------------- */
@@ -713,6 +765,15 @@ export class AwsLab {
         chunks: [{ text: `curl: (7) Failed to connect to ${u.hostname} port ${u.port || 80}: Connection refused\n(Floci runs on your own computer, not inside this lab. See "Do it for real" in the lesson.)\n`, stream: "err" }],
         code: 7,
       };
+    } else if (u.hostname.endsWith(".cloudfront.net")) {
+      try {
+        res = cloudfrontHttp(this.state, u.hostname, u.pathname);
+      } catch (e) {
+        if (e instanceof NotResolvable) return { chunks: [{ text: e.message, stream: "err" }], code: 6 };
+        throw e;
+      }
+    } else if (/\.s3-website[.-]/.test(u.hostname) && u.hostname.endsWith("amazonaws.com")) {
+      res = websiteHttp(this.state, u.hostname.split(".s3-website")[0], u.pathname);
     } else if (u.hostname.endsWith(`.execute-api.${REGION}.amazonaws.com`)) {
       res = await httpToApi(this.state, this.rt, method.toUpperCase(), u, headers, body);
     } else if (/\.?s3[.-]/.test(u.hostname) && u.hostname.endsWith("amazonaws.com")) {
@@ -791,7 +852,7 @@ const HELP = `This is a practice terminal with the AWS CLI and a few everyday co
   ls, cd, pwd, cat, echo, mkdir, touch, rm, cp, mv     work with files in your home folder
   edit <file>                   open a file in the editor (Files tab)
   zip out.zip file...           package code for Lambda
-  curl <url>                    call an S3 URL or an API Gateway endpoint
+  curl <url>                    call S3, an S3 website, CloudFront or API Gateway
   jq, grep, head, tail, wc, base64   reshape output (use with |)
   sleep <seconds>               move the clock forward (instantly)
   clear                         clear the screen

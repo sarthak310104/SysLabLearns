@@ -79,6 +79,10 @@ TRACKS.push({
     { code: "C6", title: "DynamoDB: a database with no servers", breaks: "A scan reads the whole table to find three items.", slug: "c6-dynamodb", awsLab: awsLabBySlug("c6-dynamodb") },
     { code: "C7", title: "Lambda: code without servers", breaks: "Your function runs, but nothing shows up in the logs.", slug: "c7-lambda", awsLab: awsLabBySlug("c7-lambda") },
     { code: "C8", title: "Capstone: a serverless notes API", breaks: "The API returns 500 until two permissions are right.", slug: "c8-serverless-api", awsLab: awsLabBySlug("c8-serverless-api") },
+    { code: "C9", title: "Websites: S3 hosting and CloudFront", breaks: "Your bucket has to be public to serve a site, and an update doesn't show until the cache lets go.", slug: "c9-websites", awsLab: awsLabBySlug("c9-websites") },
+    { code: "C10", title: "EventBridge: schedules and events", breaks: "The schedule fires on time, but nothing runs and nothing logs.", slug: "c10-eventbridge", awsLab: awsLabBySlug("c10-eventbridge") },
+    { code: "C11", title: "Step Functions: workflows that handle failure", breaks: "A step fails halfway through an order, and the flow has to know what to do next.", slug: "c11-step-functions", awsLab: awsLabBySlug("c11-step-functions") },
+    { code: "C12", title: "Mystery: debug a broken account", breaks: "Four things are broken. Nobody tells you which, or why.", slug: "c12-mystery", awsLab: awsLabBySlug("c12-mystery") },
   ],
 });
 

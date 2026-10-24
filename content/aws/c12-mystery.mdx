@@ -1,0 +1,76 @@
+Real cloud work is less often "build something new" and more often "something's broken, and nobody knows why". This lesson is a mystery. One command builds a small shop's account with four things wrong in it. You get what people are complaining about, the same as you would at work, and nothing else.
+
+Everything you need, you've used before. The skill here is the order you look in: **symptom, then evidence, then cause, then fix, then check the fix.**
+
+## Set the scene
+
+This is a lab-only command (real AWS doesn't have it). It builds the shop with ordinary AWS commands, then hands you the complaints:
+
+<Cmd>lab-setup broken-shop</Cmd>
+
+You can open **Your AWS account** below the terminal at any time to see everything that was built. Try to fix one complaint at a time, and check each fix before moving on.
+
+## Where to look
+
+These are the commands detectives use. Each one answers a question; which questions to ask is up to you.
+
+**Is it reachable, and what exactly does it say?**
+
+<Cmd>curl -i http://acme-shop-site.s3-website.ap-south-1.amazonaws.com</Cmd>
+
+**Who is allowed to read this bucket?**
+
+<Cmd>aws s3api get-bucket-policy --bucket acme-shop-site --query Policy --output text</Cmd>
+
+**Is work piling up somewhere?**
+
+<Cmd>aws sqs get-queue-attributes --queue-url https://sqs.ap-south-1.amazonaws.com/123456789012/orders --attribute-names ApproximateNumberOfMessages</Cmd>
+
+**Is the thing that should take that work connected, and switched on?**
+
+<Cmd>aws lambda list-event-source-mappings --function-name save-order</Cmd>
+
+**What happens if I run it myself, and what did it log?** (A test order shaped like what SQS sends.)
+
+<Cmd>{`aws lambda invoke --function-name save-order --cli-binary-format raw-in-base64-out --payload '{"Records":[{"body":"{\\"id\\":\\"test-1\\",\\"item\\":\\"mug\\"}"}]}' out.json && cat out.json`}</Cmd>
+
+<Cmd>aws logs tail /aws/lambda/save-order</Cmd>
+
+**What is this role actually allowed to do?**
+
+<Cmd>aws iam list-role-policies --role-name save-order-role</Cmd>
+
+<Cmd>aws iam get-role-policy --role-name save-order-role --policy-name write-orders</Cmd>
+
+<Cmd>aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::123456789012:role/save-order-role --action-names dynamodb:PutItem --resource-arns arn:aws:dynamodb:ap-south-1:123456789012:table/Orders</Cmd>
+
+**Did a scheduled job even start?**
+
+<Cmd>aws events describe-rule --name nightly-cleanup</Cmd>
+
+<Cmd>aws cloudwatch get-metric-statistics --namespace AWS/Events --metric-name FailedInvocations --dimensions Name=RuleName,Value=nightly-cleanup --statistics Sum --period 86400 --start-time 2026-01-01T00:00:00Z --end-time 2030-01-01T00:00:00Z</Cmd>
+
+<Cmd>aws lambda get-policy --function-name nightly-cleanup</Cmd>
+
+That last one may fail, and the failure is itself a clue.
+
+## Fixing
+
+You'll write the fixes yourself. Every one of them is a command you've already run in an earlier lesson: look back at C2 (bucket policies), C3 (IAM policies), C7 (triggers), C8 and C10 (letting a service invoke a function). The goals below tick off when the account is actually working again, not when you've typed a particular command, so any correct fix counts.
+
+A few tips:
+
+- When you replace a policy, `put-...-policy` with the same name overwrites the old one.
+- To switch an event source mapping back on: `aws lambda update-event-source-mapping --uuid ... --enabled`. Its UUID is in `list-event-source-mappings`.
+- The nightly job runs at 20:30 UTC. After fixing it, `sleep 86400` moves the clock a day forward so you can see it run.
+
+<Goals />
+
+## What to remember
+
+- Start from the symptom and collect evidence before changing anything.
+- "403" and "AccessDenied" point at a policy; read the exact resource it names.
+- Nothing in the logs often means the code never ran: look one step earlier (a trigger, a permission, a schedule).
+- After every fix, check the symptom itself is gone.
+
+<Quiz />
