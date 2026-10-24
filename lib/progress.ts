@@ -121,3 +121,44 @@ export async function saveLabCode(lab: string, code: string): Promise<void> {
     await getDb()?.code.put({ lab, code, updatedAt: Date.now() });
   } catch {}
 }
+
+/* ------------------------------------------------------------------ */
+/* Backup: every table, so new ones are included without changes here */
+/* ------------------------------------------------------------------ */
+
+export interface ProgressBackup {
+  app: "syslablearns";
+  version: 1;
+  exportedAt: string;
+  tables: Record<string, unknown[]>;
+}
+
+export async function exportProgress(): Promise<ProgressBackup> {
+  const db = getDb();
+  const tables: Record<string, unknown[]> = {};
+  if (db) for (const t of db.tables) tables[t.name] = await t.toArray();
+  return { app: "syslablearns", version: 1, exportedAt: new Date().toISOString(), tables };
+}
+
+/**
+ * Merge a backup into this browser. Rows with the same key are replaced by
+ * the backup's; nothing else is deleted. Returns how many rows came in.
+ */
+export async function importProgress(data: unknown): Promise<number> {
+  const b = data as Partial<ProgressBackup> | null;
+  if (!b || b.app !== "syslablearns" || typeof b.tables !== "object" || !b.tables) {
+    throw new Error("That file isn't a SysLabLearns progress backup.");
+  }
+  const db = getDb();
+  if (!db) throw new Error("This browser doesn't allow saving progress (private window?).");
+  let n = 0;
+  await db.transaction("rw", db.tables, async () => {
+    for (const t of db.tables) {
+      const rows = b.tables![t.name];
+      if (!Array.isArray(rows) || !rows.length) continue;
+      await t.bulkPut(rows);
+      n += rows.length;
+    }
+  });
+  return n;
+}

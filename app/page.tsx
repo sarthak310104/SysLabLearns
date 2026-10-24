@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { HeroDemo } from "@/components/HeroDemo";
+import { ProgressBackup } from "@/components/ProgressBackup";
 import { Roadmap } from "@/components/Roadmap";
 
 export default function Home() {
@@ -26,6 +27,7 @@ export default function Home() {
         <HeroDemo />
       </section>
       <Roadmap />
+      <ProgressBackup />
     </div>
   );
 }
