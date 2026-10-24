@@ -10,6 +10,13 @@ interface GoalRow {
   completedAt: number;
 }
 
+interface QuizRow {
+  lesson: string;
+  best: number;
+  total: number;
+  updatedAt: number;
+}
+
 interface DesignRow {
   id: string;
   name: string;
@@ -20,10 +27,12 @@ interface DesignRow {
 class LabDB extends Dexie {
   goals!: Table<GoalRow, string>;
   designs!: Table<DesignRow, string>;
+  quizzes!: Table<QuizRow, string>;
 
   constructor() {
     super("syslablearns");
     this.version(1).stores({ goals: "id, lesson", designs: "id, updatedAt" });
+    this.version(2).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson" });
   }
 }
 
@@ -69,4 +78,23 @@ export async function loadDesign(id: string): Promise<Graph | null> {
   } catch {
     return null;
   }
+}
+
+/** Best quiz score per lesson. */
+export async function loadQuizScores(): Promise<Record<string, { best: number; total: number }>> {
+  try {
+    const rows = (await getDb()?.quizzes.toArray()) ?? [];
+    return Object.fromEntries(rows.map((r) => [r.lesson, { best: r.best, total: r.total }]));
+  } catch {
+    return {};
+  }
+}
+
+export async function saveQuizScore(lesson: string, score: number, total: number): Promise<void> {
+  try {
+    const db = getDb();
+    if (!db) return;
+    const prev = await db.quizzes.get(lesson);
+    if (!prev || score > prev.best) await db.quizzes.put({ lesson, best: score, total, updatedAt: Date.now() });
+  } catch {}
 }

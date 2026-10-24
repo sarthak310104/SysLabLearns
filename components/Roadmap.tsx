@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { TRACKS, type Module } from "@/content/curriculum";
-import { loadCompletedGoals } from "@/lib/progress";
+import { loadCompletedGoals, loadQuizScores } from "@/lib/progress";
 
 function Progress({ done, total }: { done: number; total: number }) {
   return (
@@ -15,7 +15,10 @@ function Progress({ done, total }: { done: number; total: number }) {
   );
 }
 
-function ModuleRow({ m, completed, isNext }: { m: Module; completed: Set<string>; isNext: boolean }) {
+type Scores = Record<string, { best: number; total: number }>;
+
+function ModuleRow({ m, completed, isNext, scores }: { m: Module; completed: Set<string>; isNext: boolean; scores: Scores }) {
+  const quiz = m.slug ? scores[m.slug] : undefined;
   const body = (
     <>
       <span className={`num text-[13px] w-7 shrink-0 pt-0.5 ${m.slug ? "text-signal" : "text-muted"}`}>{m.code}</span>
@@ -25,7 +28,14 @@ function ModuleRow({ m, completed, isNext }: { m: Module; completed: Set<string>
       </span>
       <span className="shrink-0 pt-1 text-[12px] text-muted">
         {m.preset && m.slug ? (
-          <Progress done={m.preset.goals.filter((g) => completed.has(`${m.slug}/${g.id}`)).length} total={m.preset.goals.length} />
+          <span className="flex flex-col items-end gap-1">
+            <Progress done={m.preset.goals.filter((g) => completed.has(`${m.slug}/${g.id}`)).length} total={m.preset.goals.length} />
+            {quiz && (
+              <span className="num">
+                Quiz {quiz.best}/{quiz.total}
+              </span>
+            )}
+          </span>
         ) : (
           m.comingIn
         )}
@@ -47,8 +57,10 @@ function ModuleRow({ m, completed, isNext }: { m: Module; completed: Set<string>
 
 export function Roadmap() {
   const [completed, setCompleted] = useState<Set<string>>(new Set());
+  const [scores, setScores] = useState<Scores>({});
   useEffect(() => {
     loadCompletedGoals().then(setCompleted);
+    loadQuizScores().then(setScores);
   }, []);
 
   const firstUnfinished = TRACKS.flatMap((t) => t.modules).find(
@@ -65,7 +77,7 @@ export function Roadmap() {
           <p className="text-muted mt-1 mb-4 max-w-[60ch]">{t.blurb}</p>
           <ol className="rounded-lg border border-line bg-panel divide-y divide-line overflow-hidden">
             {t.modules.map((m) => (
-              <ModuleRow key={m.code} m={m} completed={completed} isNext={m === firstUnfinished} />
+              <ModuleRow key={m.code} m={m} completed={completed} scores={scores} isNext={m === firstUnfinished} />
             ))}
           </ol>
         </section>
