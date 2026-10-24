@@ -1,0 +1,43 @@
+Every system you'll ever design is a pile of things that take requests, do some work, and send answers back. Before load balancers or caches, it pays to understand one of those things really well, because everything later is built out of it.
+
+## A server is a few workers and a waiting line
+
+The API server in the lab has **4 workers**. Each one handles one request at a time, and each request takes about **40 ms** of work. Anything that arrives while all four are busy waits in a **queue**.
+
+That gives the server a hard ceiling. Each worker can finish about 25 requests a second, so four of them top out near **100 requests per second**. That number is its **throughput** limit.
+
+Press **Send traffic**. At 30 req/s the server is mostly idle: requests walk straight in, get served, and leave. Watch the dots on the wire.
+
+## Latency is work plus waiting
+
+How long a request takes, its **latency**, is the work itself plus however long it sat in the queue. At low load the queue is empty, so latency is roughly the 40 ms of work.
+
+Here's the part that surprises people: waiting time doesn't grow in a straight line with load. At half capacity, requests rarely wait. Near full capacity, a small burst of arrivals stacks up faster than the workers can clear it, and those requests wait behind each other. Latency shoots up long before the server is technically "full".
+
+That's why the lab shows **p99**, the slowest 1% of requests. Averages hide the pain. If you serve a million requests a day, a p99 of 500 ms means ten thousand people a day waited half a second.
+
+<Note>
+A good rule of thumb: keep busy resources under about 70 to 80% utilization if you care about latency. The last 20% of capacity is the most expensive.
+</Note>
+
+## Past capacity, the queue fills and requests get turned away
+
+Above 100 req/s, requests arrive faster than they can leave. The queue grows every second. It can't grow forever, so the server has a **queue limit**; once that's reached, new requests are rejected immediately.
+
+That's actually the healthy outcome. A server with an unlimited queue would accept everything and answer it all minutes late, which is worse than a fast "no". You'll meet this idea again as **load shedding** and **backpressure**.
+
+## Getting more throughput
+
+When one server runs out of room you have two broad options:
+
+- **Scale up**: give it more workers (more CPU cores, more threads). Cheap and simple, until you hit the biggest machine you can buy.
+- **Scale out**: add more servers and spread requests across them. That's the next lesson.
+
+<Goals />
+
+## What to remember
+
+- Throughput has a ceiling: workers divided by time per request.
+- Latency is work plus waiting, and waiting explodes as you approach the ceiling.
+- Watch p99, not averages.
+- A bounded queue that rejects work is a feature, not a bug.

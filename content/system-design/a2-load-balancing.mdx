@@ -1,0 +1,38 @@
+One server has a ceiling. The way past it is to run several and put a **load balancer** in front, so clients see one address while the work spreads across many machines.
+
+The interesting question is *how* the balancer decides where each request goes, and what it does when a server dies.
+
+## Round robin: fair is not the same as equal
+
+The simplest strategy is **round robin**: server 1, then 2, then 3, then back to 1. Every server gets the same number of requests.
+
+That's fine when every server is identical. In the lab, Server 3 is older: each request takes it 90 ms instead of 40. It can handle about 44 req/s while the others handle 100. Round robin still sends it a third of the traffic, about 73 req/s. Its queue fills, and it starts rejecting requests while the other two servers sit with spare capacity.
+
+Press **Send traffic** and look at which server lights up.
+
+## Least connections: send work where there's room
+
+**Least connections** sends each request to the server with the fewest requests in progress. A slow server holds onto its requests longer, so its count stays high and it naturally gets less new work. The balancer doesn't need to know *why* a server is slow; it just notices.
+
+This is the same idea as picking the shortest checkout line at a supermarket, except the balancer never misjudges which line is moving.
+
+<Note>
+Real balancers also offer weighted round robin, where you tell it each server's capacity, and "power of two choices": pick two servers at random and send to the less busy one. That gets most of the benefit of least connections with far less coordination.
+</Note>
+
+## When a server dies
+
+Crash a server and watch the client. If the balancer doesn't know the server is gone, it keeps sending it a share of requests, and every one of those fails instantly.
+
+**Health checks** fix that: the balancer regularly asks each server "are you alive?" and stops routing to the ones that don't answer. In the lab, turning them on removes dead servers from rotation immediately. In real systems there's a delay of a few seconds while checks fail, so some errors leak through.
+
+But health checks only stop requests going to the dead server. The survivors now carry its share. If they didn't have spare capacity, you've swapped "some requests fail" for "everything is slow and some requests fail". Planning for that is called **N+1 capacity**: enough servers that you can lose one and still cope.
+
+<Goals />
+
+## What to remember
+
+- A load balancer turns many servers into one address.
+- Round robin assumes identical servers; least connections adapts to reality.
+- Without health checks, a dead server becomes a black hole for requests.
+- Capacity planning means surviving the loss of a server, not just the average day.

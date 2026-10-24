@@ -1,0 +1,47 @@
+Databases are usually the slowest, most limited part of a system. They're careful with your data, which takes time, and they can only hold so many open connections. When reads pile up, the database is often the first thing to give out.
+
+A **cache** is a small, fast store that remembers recent answers so you don't have to ask the database again.
+
+## Find the bottleneck first
+
+Press **Send traffic** with the setup as it is: users, an API server, and a database. The API server does very little work per request; nearly all the time goes to the database query.
+
+Look carefully at what goes red. The API server looks unhealthy too: its workers are all busy and its queue is filling. But it isn't *working* hard; its workers are stuck waiting for the database to answer. The lab marks the database as the **bottleneck** because it's the component saturated by its own work.
+
+That distinction matters in real incidents. The loudest alarm is often a victim, not the cause. Follow the waiting to find the root.
+
+## Why caching works: traffic is skewed
+
+In this lab, 80% of requests go to the hottest 1% of keys. That's realistic: a few products, posts or profiles get most of the views. If you can answer those few from memory, most requests never touch the database.
+
+The fraction of lookups answered from the cache is the **hit ratio**. A hit takes about a millisecond. A miss goes to the database as before, and the answer is stored on the way back so the next request for that key is a hit.
+
+Try lowering the hot-key share on the Users component after you've added a cache. As traffic spreads out evenly, the hit ratio drops and the database load comes back.
+
+<Note>
+This pattern, where the app checks the cache first and fills it on a miss, is called **cache-aside**. It's the most common way caches are used.
+</Note>
+
+## Staleness and expiry
+
+Every cached answer is a copy, and copies go out of date. The **time to live** (TTL) controls how long an entry is trusted before it expires and the next request goes back to the database.
+
+- A long TTL gives a high hit ratio, but readers may see old data for longer.
+- A short TTL keeps data fresh, but sends more traffic through to the database.
+
+There's no right answer, only a choice about how stale your users can tolerate.
+
+## A cold cache is a hidden risk
+
+Once a cache is absorbing most of the reads, your database may no longer be able to handle the full load without it. If the cache restarts, it comes back empty: a **cold cache**. Every request misses, the database gets hit with everything at once, and it can fall over just as the cache is trying to warm up.
+
+Real systems protect against this by warming caches before sending them traffic, limiting how many misses can go to the database at once, and making sure the database can survive at least a short period without the cache.
+
+<Goals />
+
+## What to remember
+
+- Find the component saturated by its own work: that's the real bottleneck.
+- Caches work because traffic is skewed toward a few hot keys.
+- TTL trades freshness for hit ratio.
+- Once you depend on a cache, a cold restart can take down the database behind it.
