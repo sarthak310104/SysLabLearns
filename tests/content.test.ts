@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { LESSONS, PROTOCOL_LESSONS } from "@/content/curriculum";
+import { AWS_LESSONS, LESSONS, PROTOCOL_LESSONS } from "@/content/curriculum";
 import { QUIZZES } from "@/content/quizzes";
 
 describe("lesson content", () => {
   it("every lesson has a well-formed quiz", () => {
-    for (const l of [...LESSONS, ...PROTOCOL_LESSONS]) {
+    for (const l of [...LESSONS, ...PROTOCOL_LESSONS, ...AWS_LESSONS]) {
       const qs = QUIZZES[l.slug];
       expect(qs, l.slug).toBeDefined();
       expect(qs.length).toBeGreaterThanOrEqual(4);
@@ -18,7 +18,7 @@ describe("lesson content", () => {
   });
 
   it("every lesson page shows its goals and quiz, without em dashes", () => {
-    const files = [...LESSONS.map((l) => [l.slug, `content/system-design/${l.slug}.mdx`]), ...PROTOCOL_LESSONS.map((l) => [l.slug, `content/protocols/${l.slug}.mdx`])];
+    const files = [...LESSONS.map((l) => [l.slug, `content/system-design/${l.slug}.mdx`]), ...PROTOCOL_LESSONS.map((l) => [l.slug, `content/protocols/${l.slug}.mdx`]), ...AWS_LESSONS.map((l) => [l.slug, `content/aws/${l.slug}.mdx`])];
     for (const [slug, file] of files) {
       const l = { slug };
       const text = readFileSync(file, "utf8");

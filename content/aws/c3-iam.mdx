@@ -1,0 +1,92 @@
+So far you've been the account's administrator, allowed to do anything. Real teams don't work like that. IAM (Identity and Access Management) controls who can do what, and it's behind most of the "AccessDenied" errors you'll ever see. Understand IAM and AWS stops feeling mysterious.
+
+## Who: users and roles
+
+- A **user** is a person (or a program running outside AWS) with long-term credentials: a password for the console, or an **access key** for the CLI.
+- A **role** is an identity with no password that something *takes on* for a while. AWS services use roles: a Lambda function runs "as" its role. You'll create one in lesson C7.
+
+Every request to AWS is signed by an identity, and AWS checks that identity's permissions every time.
+
+## What: policies
+
+Permissions are written as **policies**, which are JSON documents of statements. Each statement says:
+
+- **Effect**: `Allow` or `Deny`.
+- **Action**: which API calls, like `s3:GetObject` (download) or `s3:ListBucket` (list). Wildcards work: `s3:*` means all of S3.
+- **Resource**: which things, by ARN. `arn:aws:s3:::my-bucket/*` means every object in my-bucket.
+
+Three rules decide every request:
+
+1. **Everything is denied by default.** A brand new user can't do anything.
+2. An **Allow** in any of your policies lets the request through...
+3. ...unless any policy has a matching **Deny**. An explicit deny always wins.
+
+## A new teammate
+
+Make a user for an intern, and give them an access key so they can use the CLI:
+
+<Cmd>aws iam create-user --user-name intern</Cmd>
+
+<Cmd>aws iam create-access-key --user-name intern</Cmd>
+
+The answer has an `AccessKeyId` (starting with AKIA) and a `SecretAccessKey`. On a real account you see the secret once, then never again, so it gets stored somewhere safe straight away. Save the key ID as a CLI **profile** called intern. A profile is a named set of credentials, and `--profile intern` runs any command as that user:
+
+<Cmd>KEY=$(aws iam list-access-keys --user-name intern --query 'AccessKeyMetadata[0].AccessKeyId' --output text)</Cmd>
+
+<Cmd>aws configure set aws_access_key_id $KEY --profile intern</Cmd>
+
+<Cmd>aws s3 ls --profile intern</Cmd>
+
+Read the error carefully. It says who you are (`user/intern`), what you tried (`s3:ListAllMyBuckets`), and why it failed (`no identity-based policy allows` it). That's rule 1: the default deny.
+
+## Granting access
+
+AWS provides ready-made **managed policies** for common jobs. Attach the read-only S3 one:
+
+<Cmd>aws iam attach-user-policy --user-name intern --policy-arn arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess</Cmd>
+
+<Cmd>aws s3 ls --profile intern</Cmd>
+
+Now the intern can list and read every bucket, but can't delete. Try `aws s3 rm` on a file with `--profile intern` and you'll see `s3:DeleteObject` refused.
+
+## Least privilege
+
+"Read every bucket" is still more than an intern needs. **Least privilege** means giving each identity exactly what its job needs and nothing more, so a mistake or a stolen key can do little damage. Swap the broad policy for one that reads a single bucket. First make a bucket for the team, if you don't have one:
+
+<Cmd>aws s3 mb s3://yourname-team-docs</Cmd>
+
+<Cmd>aws iam detach-user-policy --user-name intern --policy-arn arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess</Cmd>
+
+Now write your own policy as an **inline policy**, attached directly to the intern. Listing a bucket is an action on the bucket itself; reading objects is an action on the objects inside (note the `/*`):
+
+<Cmd>{`aws iam put-user-policy --user-name intern --policy-name read-team-docs --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::yourname-team-docs"},{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::yourname-team-docs/*"}]}'`}</Cmd>
+
+Change both bucket names to yours before running it. Long JSON on one line is hard to read, so for real policies people write a file: `edit policy.json`, paste it in nicely formatted, then use `--policy-document file://policy.json`.
+
+## Checking without trying
+
+You don't have to try every action to know what's allowed. The **policy simulator** evaluates the rules for you:
+
+<Cmd>aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::123456789012:user/intern --action-names s3:GetObject s3:DeleteObject --resource-arns arn:aws:s3:::yourname-team-docs/hello.txt</Cmd>
+
+Each result says `allowed`, `implicitDeny` (no policy allows it) or `explicitDeny` (a policy forbids it).
+
+<Note>
+Every AWS account also has a **root user**, the email address that created it. It can do anything, including closing the account. On a real account, protect it with MFA, then use it almost never: create an admin user or use single sign-on for daily work.
+</Note>
+
+<Goals />
+
+<Floci>{`aws iam create-user --user-name intern
+aws iam create-access-key --user-name intern
+aws iam attach-user-policy --user-name intern --policy-arn arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+# Floci skips most permission checks by default, so it won't show AccessDenied like this lab.`}</Floci>
+
+## What to remember
+
+- Users are people; roles are identities that services take on.
+- Policies say Effect, Action and Resource. Deny by default, Allow opens, explicit Deny wins.
+- AccessDenied errors tell you who, what, and why. Read them.
+- Give each identity only what its job needs.
+
+<Quiz />

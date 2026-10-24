@@ -70,3 +70,14 @@ export const REGION_LATENCY: Record<Region, Record<Region, number>> = {
   frankfurt: { mumbai: 60, frankfurt: 1, virginia: 45 },
   virginia: { mumbai: 95, frankfurt: 45, virginia: 1 },
 };
+
+/** What each component is usually called on AWS, linking this track to the AWS one. */
+export const ON_AWS: Record<ComponentKind, string> = {
+  client: "Your users, often through CloudFront (a CDN) or API Gateway",
+  loadBalancer: "Elastic Load Balancing (an Application Load Balancer)",
+  server: "EC2 instances in an Auto Scaling group, ECS containers, or Lambda",
+  cache: "ElastiCache (Redis or Valkey)",
+  database: "RDS or Aurora (PostgreSQL, MySQL), or DynamoDB",
+  replica: "An RDS or Aurora read replica",
+  queue: "SQS",
+};

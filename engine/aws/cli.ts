@@ -23,8 +23,10 @@ export interface Runtime {
 /** Raw text output (the high-level `aws s3` commands print text, not JSON). */
 export interface TextOut {
   __text: string;
+  /** Printed to stderr with exit code 1 (the s3 commands report failures this way). */
+  __err?: boolean;
 }
-export const text = (t: string): TextOut => ({ __text: t });
+export const text = (t: string, err = false): TextOut => ({ __text: t, ...(err ? { __err: true } : {}) });
 
 export class Call {
   constructor(
@@ -366,6 +368,7 @@ export async function runAws(
   const call = new Call(state, principalFor(state, profile), service, command, flags, positionals, io, rt);
   try {
     const result = await handler(call);
+    if (result && typeof result === "object" && (result as TextOut).__err) return { stdout: "", stderr: (result as TextOut).__text, code: 1 };
     return { stdout: render(result, query, output), stderr: "", code: 0 };
   } catch (e) {
     if (e instanceof AwsError) {

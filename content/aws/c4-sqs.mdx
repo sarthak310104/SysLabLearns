@@ -1,0 +1,95 @@
+A queue holds messages until something is ready to work on them. In lesson A6 you saw why: a website can accept orders instantly while workers process them at their own pace, and a burst of traffic just makes the queue longer instead of knocking anything over. SQS (Simple Queue Service) is AWS's queue.
+
+## Make a queue
+
+<Cmd>Q=$(aws sqs create-queue --queue-name orders --query QueueUrl --output text)</Cmd>
+
+<Cmd>echo $Q</Cmd>
+
+A queue is identified by its **URL**, and almost every SQS command takes `--queue-url`. Saving it in `$Q` saves a lot of typing. If you lose it, `aws sqs get-queue-url --queue-name orders` gets it back.
+
+## Send
+
+The program that sends messages is the **producer**. Send three orders:
+
+<Cmd>aws sqs send-message --queue-url $Q --message-body "order 1"</Cmd>
+
+<Cmd>aws sqs send-message --queue-url $Q --message-body "order 2"</Cmd>
+
+<Cmd>aws sqs send-message --queue-url $Q --message-body "order 3"</Cmd>
+
+Look at the queue under **Your AWS account**: 3 waiting.
+
+## Receive, work, delete
+
+The program that does the work is the **consumer**. Taking a message from SQS is two steps, and this is the part to really understand:
+
+1. **Receive** the message. SQS doesn't remove it. It **hides** it for a while, called the **visibility timeout** (30 seconds by default).
+2. Do the work, then **delete** the message using the **receipt handle** that came with it.
+
+<Cmd>aws sqs receive-message --queue-url $Q</Cmd>
+
+The answer has the `Body` and a long `ReceiptHandle`. Save the handle and delete the message:
+
+<Cmd>H=$(aws sqs receive-message --queue-url $Q --query 'Messages[0].ReceiptHandle' --output text)</Cmd>
+
+<Cmd>aws sqs delete-message --queue-url $Q --receipt-handle $H</Cmd>
+
+(That `receive` took a *different* message, because the first one is still hidden. Watch the counts in the resources panel.)
+
+## Why two steps
+
+Imagine the worker crashes halfway through an order. If receiving deleted the message, that order would be lost forever. Instead, the message was only hidden: when the visibility timeout ends without a delete, it **reappears** and another worker gets it. See it happen: receive without deleting, wait, receive again.
+
+<Cmd>aws sqs receive-message --queue-url $Q --attribute-names All</Cmd>
+
+<Cmd>sleep 31</Cmd>
+
+<Cmd>aws sqs receive-message --queue-url $Q --attribute-names All</Cmd>
+
+Check `ApproximateReceiveCount`: the same message, delivered again. This is called **at-least-once** delivery. It also means a message can occasionally be processed twice, for example if a worker finishes but crashes just before deleting. So consumers should be safe to run twice on the same message, the same lesson as exactly-once RPC in B2.
+
+Pick the visibility timeout to be longer than the work takes. Too short, and messages reappear while still being worked on.
+
+## Messages that always fail
+
+Some messages can never be processed: a bug, or bad data. Left alone, such a **poison message** comes back forever, wasting work. A **dead-letter queue** (DLQ) catches them: after a message has been received a set number of times (`maxReceiveCount`), SQS moves it to the DLQ, where you can look at it later.
+
+<Cmd>aws sqs create-queue --queue-name orders-dlq</Cmd>
+
+The setting is a **redrive policy**, which names the DLQ by its ARN. The JSON-inside-JSON quoting is ugly, but this is exactly how it's done:
+
+<Cmd>{`aws sqs set-queue-attributes --queue-url $Q --attributes '{"VisibilityTimeout":"5","RedrivePolicy":"{\\"deadLetterTargetArn\\":\\"arn:aws:sqs:ap-south-1:123456789012:orders-dlq\\",\\"maxReceiveCount\\":\\"2\\"}"}'`}</Cmd>
+
+Empty the queue so only one message is in play, then send one that "can't be processed":
+
+<Cmd>aws sqs purge-queue --queue-url $Q</Cmd>
+
+<Cmd>aws sqs send-message --queue-url $Q --message-body "broken order"</Cmd>
+
+Now be a worker that keeps failing on it: receive it, don't delete it, wait for it to come back, and repeat. Run this pair twice:
+
+<Cmd>aws sqs receive-message --queue-url $Q</Cmd>
+
+<Cmd>sleep 6</Cmd>
+
+The third `receive-message` returns nothing: after two failed tries the message moved to `orders-dlq`. Look in the resources panel, or receive from the dead-letter queue to see it there.
+
+## Standard and FIFO
+
+Standard queues (what you made) are nearly unlimited in speed, but may deliver a message more than once and slightly out of order. **FIFO** queues (names end in `.fifo`) keep order within a group and drop duplicates sent within five minutes, at lower throughput. Use standard unless order really matters.
+
+<Goals />
+
+<Floci>{`Q=$(aws sqs create-queue --queue-name orders --query QueueUrl --output text)
+aws sqs send-message --queue-url $Q --message-body "order 1"
+aws sqs receive-message --queue-url $Q`}</Floci>
+
+## What to remember
+
+- Producers send; consumers receive, work, then delete with the receipt handle.
+- A received message is hidden, not removed. Without a delete, it comes back after the visibility timeout.
+- That's at-least-once delivery, so consumers must handle duplicates.
+- A dead-letter queue catches messages that keep failing.
+
+<Quiz />

@@ -1,0 +1,106 @@
+Lambda runs your code when something happens, with no server to set up. You give it a function; AWS runs it when it's called, as many copies at once as needed, and charges for the milliseconds it runs. It's the glue of most AWS systems.
+
+## A function is a handler
+
+Your code exports one function, the **handler**. AWS calls it with an **event** (what happened, as JSON) and uses whatever it returns as the result:
+
+```
+export const handler = async (event) => {
+  console.log("event", event);
+  return { message: "Hello, " + (event.name ?? "world") };
+};
+```
+
+`console.log` lines go to the logs. More on that soon.
+
+## Step 1: a role for the function
+
+When your function calls AWS, it needs permissions, and functions get them from a **role** (lesson C3). A role has two policies:
+
+- A **trust policy**: who may take on this role. For Lambda it's the service `lambda.amazonaws.com`.
+- **Permission policies**: what the role may do once taken on.
+
+Write the trust policy to a file, create the role, and give it `AWSLambdaBasicExecutionRole`, which lets it write logs:
+
+<Cmd>{`echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' > trust.json`}</Cmd>
+
+<Cmd>aws iam create-role --role-name hello-role --assume-role-policy-document file://trust.json</Cmd>
+
+<Cmd>aws iam attach-role-policy --role-name hello-role --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole</Cmd>
+
+## Step 2: the code, zipped
+
+Open an editor for the file:
+
+<Cmd>edit index.mjs</Cmd>
+
+Paste the handler from above into the Files tab. The `.mjs` ending tells Node.js the file uses `export`; with plain `.js`, it fails to load. Lambda takes code as a **.zip** file, called the deployment package:
+
+<Cmd>zip function.zip index.mjs</Cmd>
+
+## Step 3: create and invoke
+
+<Cmd>aws lambda create-function --function-name hello --runtime nodejs20.x --handler index.handler --role arn:aws:iam::123456789012:role/hello-role --zip-file fileb://function.zip</Cmd>
+
+- `--handler index.handler` means "file index, export handler".
+- `fileb://` (with a b) sends a file as binary, which zips need.
+- The answer says `"State": "Pending"`: it takes a moment to get ready.
+
+<Cmd>aws lambda wait function-active-v2 --function-name hello</Cmd>
+
+<Cmd>{`aws lambda invoke --function-name hello --cli-binary-format raw-in-base64-out --payload '{"name":"Asha"}' out.json`}</Cmd>
+
+<Cmd>cat out.json</Cmd>
+
+`invoke` prints a status and writes the function's answer to `out.json`. That `--cli-binary-format raw-in-base64-out` is needed because CLI version 2 expects payloads in base64 otherwise; leave it out once to see the error, because everybody hits it.
+
+## Logs
+
+Your `console.log` went to **CloudWatch Logs**, in a log group named after the function:
+
+<Cmd>aws logs tail /aws/lambda/hello</Cmd>
+
+Every run writes `START`, your lines, `END`, and a `REPORT` with how long it ran and what was billed. The first run also shows `Init Duration`: that's a **cold start**, AWS setting up a fresh copy of your function. Later runs reuse it and skip that.
+
+If a function's role lacks `AWSLambdaBasicExecutionRole`, it still runs, but **writes no logs at all**. When "nothing shows up in the logs", check the role first.
+
+## Configuration, not code
+
+**Environment variables** change behaviour without changing code. Read them with `process.env`:
+
+<Cmd>{`aws lambda update-function-configuration --function-name hello --environment Variables={GREETING=Namaste}`}</Cmd>
+
+Make your handler use `process.env.GREETING ?? "Hello"`, zip, and run `aws lambda update-function-code --function-name hello --zip-file fileb://function.zip` to deploy the new version.
+
+## Triggers: run when a message arrives
+
+Functions usually run because something happened. An **event source mapping** connects an SQS queue to a function: Lambda polls the queue and calls your function with batches of messages, in `event.Records`. If the function succeeds, the messages are deleted for you; if it throws an error, they come back after the visibility timeout, and eventually go to the dead-letter queue (lesson C4).
+
+Reading from SQS needs permissions too:
+
+<Cmd>aws iam attach-role-policy --role-name hello-role --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole</Cmd>
+
+<Cmd>aws sqs create-queue --queue-name greetings</Cmd>
+
+<Cmd>aws lambda create-event-source-mapping --function-name hello --event-source-arn arn:aws:sqs:ap-south-1:123456789012:greetings</Cmd>
+
+<Cmd>aws sqs send-message --queue-url https://sqs.ap-south-1.amazonaws.com/123456789012/greetings --message-body "hi"</Cmd>
+
+Check `aws logs tail /aws/lambda/hello` again: the function ran with the message in `event.Records[0].body`.
+
+<Goals />
+
+<Floci>{`zip function.zip index.mjs
+aws iam create-role --role-name hello-role --assume-role-policy-document file://trust.json
+aws lambda create-function --function-name hello --runtime nodejs20.x --handler index.handler --role arn:aws:iam::000000000000:role/hello-role --zip-file fileb://function.zip
+aws lambda invoke --function-name hello --cli-binary-format raw-in-base64-out --payload '{"name":"Asha"}' out.json
+# Floci runs each function in a real Docker container, so the first run takes a few seconds.`}</Floci>
+
+## What to remember
+
+- A function is a handler: event in, result out.
+- It runs as a role. The trust policy names Lambda; permission policies say what it can do.
+- No logs usually means the role can't write them.
+- Event source mappings run functions from queues, with retries and dead letters for failures.
+
+<Quiz />

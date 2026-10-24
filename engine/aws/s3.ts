@@ -206,7 +206,7 @@ async function s3cp(c: Call, move: boolean): Promise<unknown> {
       c.authorize("s3:GetObject", arn.s3Object(b.name, key));
       const obj = b.objects[key];
       if (!obj) {
-        return text(`fatal error: An error occurred (404) when calling the HeadObject operation: Key "${key}" does not exist\n`);
+        return text(`fatal error: An error occurred (404) when calling the HeadObject operation: Key "${key}" does not exist\n`, true);
       }
       const rel = recursive ? key.slice(s.key.length).replace(/^\//, "") : key.split("/").pop()!;
       const target = recursive ? `${dst.replace(/\/$/, "")}/${rel}` : dst.endsWith("/") || dst === "." ? `${dst.replace(/\/$/, "")}/${rel}`.replace(/^\.\//, "./") : dst;
@@ -255,7 +255,7 @@ const s3: Service = {
       try {
         createBucket(c, p.bucket, undefined, true);
       } catch (e) {
-        if (e instanceof AwsError) return text(`make_bucket failed: s3://${p.bucket} An error occurred (${e.code}) when calling the CreateBucket operation: ${e.message}\n`);
+        if (e instanceof AwsError) return text(`make_bucket failed: s3://${p.bucket} An error occurred (${e.code}) when calling the CreateBucket operation: ${e.message}\n`, true);
         throw e;
       }
       return text(`make_bucket: ${p.bucket}\n`);
@@ -264,7 +264,7 @@ const s3: Service = {
       const p = parseUri(c.positionals[0] ?? "");
       if (!p) throw new UsageError("the following arguments are required: path");
       const b = c.state.s3.buckets[p.bucket];
-      const fail = (code: string, msg: string) => text(`remove_bucket failed: s3://${p.bucket} An error occurred (${code}) when calling the DeleteBucket operation: ${msg}\n`);
+      const fail = (code: string, msg: string) => text(`remove_bucket failed: s3://${p.bucket} An error occurred (${code}) when calling the DeleteBucket operation: ${msg}\n`, true);
       if (!b) return fail("NoSuchBucket", "The specified bucket does not exist");
       c.authorize("s3:DeleteBucket", arn.s3Bucket(b.name));
       const lines: string[] = [];

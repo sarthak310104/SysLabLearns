@@ -17,15 +17,15 @@ describe("S3", () => {
 
   it("teaches the real gotchas", async () => {
     const { run } = lab();
-    expect((await run("aws s3 mb s3://test")).out).toMatch(/BucketAlreadyExists/);
-    expect((await run("aws s3 mb s3://Bad_Name")).out).toMatch(/InvalidBucketName/);
+    expect((await run("aws s3 mb s3://test")).err).toMatch(/BucketAlreadyExists/);
+    expect((await run("aws s3 mb s3://Bad_Name")).err).toMatch(/InvalidBucketName/);
     const r = await run("aws s3api create-bucket --bucket sarthak-raw-1");
     expect(r.err).toMatch(/IllegalLocationConstraintException/);
     expect(r.code).toBe(254);
     const ok = await run("aws s3api create-bucket --bucket sarthak-raw-1 --create-bucket-configuration LocationConstraint=ap-south-1");
     expect(ok.json().Location).toContain("sarthak-raw-1");
     await run("aws s3 cp hello.txt s3://sarthak-raw-1/");
-    expect((await run("aws s3 rb s3://sarthak-raw-1")).out).toMatch(/BucketNotEmpty/);
+    expect((await run("aws s3 rb s3://sarthak-raw-1")).err).toMatch(/BucketNotEmpty/);
     expect((await run("aws s3 rb s3://sarthak-raw-1 --force")).out).toMatch(/remove_bucket: sarthak-raw-1/);
   });
 

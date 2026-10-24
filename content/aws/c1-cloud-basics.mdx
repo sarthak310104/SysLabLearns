@@ -1,0 +1,96 @@
+This track assumes you've never used AWS, and maybe never used a terminal much either. By the end you'll have built a small working backend on AWS by typing the same commands engineers use every day. The account on the right is a practice copy of AWS that runs inside this page: nothing costs money, nothing can leak, and you can reset it whenever you like.
+
+## What "the cloud" is
+
+A company like AWS (Amazon Web Services) owns huge buildings full of computers, called data centres. Instead of buying your own servers, you rent pieces of theirs and pay only for what you use. Each piece is offered as a **service** with a short name:
+
+- **S3** stores files.
+- **DynamoDB** is a database.
+- **Lambda** runs your code when something happens.
+- **SQS** and **SNS** pass messages between parts of a system.
+- **IAM** decides who's allowed to do what.
+
+You'll use all of these in this track. Each one is a building block, and real systems snap several together.
+
+## Accounts and regions
+
+Everything you create lives in your **AWS account**, which is your private space with its own bill and its own list of people allowed in.
+
+AWS runs data centres all over the world, grouped into **regions**. Each region has a code: `ap-south-1` is Mumbai, `eu-west-1` is Ireland, `us-east-1` is Virginia. When you create something, it lives in one region. Pick one close to your users, because distance costs time (lesson A9 showed how much). This practice account uses `ap-south-1`.
+
+## Three ways to talk to AWS
+
+1. **The console**: a website where you click buttons.
+2. **The CLI** (command line interface): a program called `aws` that you type commands into.
+3. **SDKs**: libraries you call from your own code.
+
+All three send the same requests to the same AWS API underneath. We'll use the CLI, because typing a command teaches you exactly what's happening, and because every command can be saved, repeated and shared.
+
+## The terminal, in two minutes
+
+The panel on the right is a **terminal**. The text before your cursor is the **prompt**: `you@aws-lab:~$` means you're user `you` and you're in your home folder (`~`). You type a command and press Enter. Try these:
+
+<Cmd>ls</Cmd>
+
+`ls` lists the files in the current folder. There's one, `hello.txt`.
+
+<Cmd>cat hello.txt</Cmd>
+
+`cat` prints a file. Now make your own file. `echo` prints text, and `>` sends that output into a file instead of the screen:
+
+<Cmd>echo "my first file" > notes.txt</Cmd>
+
+Run `ls` again and it's there. You can also open files in the **Files** tab under the terminal and edit them there. A few keys worth knowing: the **up arrow** brings back your last command, and **Tab** finishes a word for you.
+
+## Your first AWS command
+
+Every AWS CLI command has the same shape:
+
+```
+aws <service> <command> --option value --other-option value
+```
+
+Start by asking AWS who you are. The service is STS (Security Token Service), and the command is `get-caller-identity`:
+
+<Cmd>aws sts get-caller-identity</Cmd>
+
+AWS answers in **JSON**, a common text format of names and values in curly braces. You'll see three things:
+
+- `Account`: your 12-digit account number.
+- `UserId`: an internal ID for you.
+- `Arn`: your **ARN**, short for Amazon Resource Name.
+
+ARNs are how AWS names everything, and you'll see them constantly. They follow a pattern: `arn:aws:service:region:account:resource`. Your user is `arn:aws:iam::123456789012:user/you`. The region is blank because IAM is global.
+
+## Getting just the part you need
+
+JSON is great for programs, but often you want one value. `--query` picks a field out of the answer, and `--output text` drops the quotes and braces:
+
+<Cmd>aws sts get-caller-identity --query Account --output text</Cmd>
+
+You can save a command's output in a **variable** with `NAME=$(command)`, then use it later as `$NAME`. This is how real scripts chain AWS commands together:
+
+<Cmd>ACCOUNT=$(aws sts get-caller-identity --query Account --output text)</Cmd>
+
+<Cmd>echo "My account is $ACCOUNT"</Cmd>
+
+You'll use this pattern in every lesson: create something, save its ID or URL in a variable, use the variable in the next command.
+
+<Note>
+If a command fails, read the error from the end. AWS errors name the problem precisely: "AccessDenied", "NoSuchBucket", "ValidationException" plus a sentence of detail. Most of this track is learning to read those messages calmly.
+</Note>
+
+<Goals />
+
+<Floci>{`aws sts get-caller-identity
+aws sts get-caller-identity --query Account --output text`}</Floci>
+
+## What to remember
+
+- AWS rents you building blocks (services) that run in its data centres, grouped into regions.
+- The CLI's shape is always `aws <service> <command> --options`.
+- Answers come back as JSON. `--query` picks a field and `--output text` makes it plain.
+- `NAME=$(command)` saves an answer, and `$NAME` uses it.
+- ARNs name every resource: `arn:aws:service:region:account:resource`.
+
+<Quiz />

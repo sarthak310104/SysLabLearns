@@ -7,6 +7,7 @@ import type { HistoryPoint } from "@/lib/useSimulation";
 import { CONTROLS, type Control } from "./controls";
 import { fmtMs, fmtPct, fmtRate, fmtTime } from "./format";
 import { Glyph } from "./glyphs";
+import { ON_AWS } from "@/engine/model/defaults";
 import { Sparkline } from "./Sparkline";
 import type { LabFlowNode } from "./LabNode";
 
@@ -250,7 +251,8 @@ export function Inspector(p: InspectorProps) {
   const row = (c: Control) => <ControlRow key={c.key} c={c} value={cfg[c.key]} onChange={(v) => p.onConfig(sel.id, { ...cfg, [c.key]: v } as unknown as AnyConfig)} />;
   return (
     <div className="text-[14px]">
-      <div className={`${section} flex items-center gap-2`}>
+      <div className={section}>
+        <div className="flex items-center gap-2">
         <span className="text-muted">
           <Glyph kind={kind} />
         </span>
@@ -260,6 +262,8 @@ export function Inspector(p: InspectorProps) {
           onChange={(e) => p.onRename(sel.id, e.target.value)}
           className="flex-1 bg-transparent font-medium rounded px-1 -mx-1 hover:bg-panel-2 focus:bg-panel-2"
         />
+        </div>
+        <p className="mt-1 text-[12px] text-muted">On AWS: {ON_AWS[kind]}</p>
       </div>
       {s && (
         <div className={section}>

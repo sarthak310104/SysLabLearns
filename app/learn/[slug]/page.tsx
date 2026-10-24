@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import type { ComponentType } from "react";
 import { LessonShell } from "@/components/lesson/LessonShell";
+import { AwsShell } from "@/components/aws/AwsShell";
 import { ProtocolShell } from "@/components/protocol/ProtocolShell";
-import { LESSONS, lessonBySlug, PROTOCOL_LESSONS, protocolLessonBySlug } from "@/content/curriculum";
+import { AWS_LESSONS, awsLessonBySlug, LESSONS, lessonBySlug, PROTOCOL_LESSONS, protocolLessonBySlug } from "@/content/curriculum";
 
 // One loader per lesson keeps the imports static, which every bundler handles.
 const CONTENT: Record<string, () => Promise<{ default: ComponentType }>> = {
@@ -22,23 +23,38 @@ const CONTENT: Record<string, () => Promise<{ default: ComponentType }>> = {
   "b2-rpc": () => import("@/content/protocols/b2-rpc.mdx"),
   "b3-primary-backup": () => import("@/content/protocols/b3-primary-backup.mdx"),
   "b4-paxos": () => import("@/content/protocols/b4-paxos.mdx"),
+  "c1-cloud-basics": () => import("@/content/aws/c1-cloud-basics.mdx"),
+  "c2-s3": () => import("@/content/aws/c2-s3.mdx"),
+  "c3-iam": () => import("@/content/aws/c3-iam.mdx"),
+  "c4-sqs": () => import("@/content/aws/c4-sqs.mdx"),
+  "c5-sns": () => import("@/content/aws/c5-sns.mdx"),
+  "c6-dynamodb": () => import("@/content/aws/c6-dynamodb.mdx"),
+  "c7-lambda": () => import("@/content/aws/c7-lambda.mdx"),
+  "c8-serverless-api": () => import("@/content/aws/c8-serverless-api.mdx"),
 };
 
 export function generateStaticParams() {
-  return [...LESSONS, ...PROTOCOL_LESSONS].map((l) => ({ slug: l.slug }));
+  return [...LESSONS, ...PROTOCOL_LESSONS, ...AWS_LESSONS].map((l) => ({ slug: l.slug }));
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const found = lessonBySlug(slug) ?? protocolLessonBySlug(slug);
+  const found = lessonBySlug(slug) ?? protocolLessonBySlug(slug) ?? awsLessonBySlug(slug);
   return { title: found ? `${found.lesson.code} ${found.lesson.title} | SysLabLearns` : "SysLabLearns" };
 }
 
 export default async function LessonPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const load = CONTENT[slug];
-  if (!load || !(lessonBySlug(slug) || protocolLessonBySlug(slug))) notFound();
+  if (!load || !(lessonBySlug(slug) || protocolLessonBySlug(slug) || awsLessonBySlug(slug))) notFound();
   const { default: Content } = await load();
+  if (awsLessonBySlug(slug)) {
+    return (
+      <AwsShell slug={slug}>
+        <Content />
+      </AwsShell>
+    );
+  }
   if (protocolLessonBySlug(slug)) {
     return (
       <ProtocolShell slug={slug}>

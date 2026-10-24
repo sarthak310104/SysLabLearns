@@ -1,0 +1,77 @@
+When an order is placed, several things should happen: send a confirmation email, update stock, notify the warehouse. The website shouldn't need to know about every one of them. It should announce "an order was placed" once, and anything interested listens. That's **publish/subscribe**, and SNS (Simple Notification Service) does it.
+
+## Topics and subscriptions
+
+- A **topic** is a named channel you publish messages to.
+- A **subscription** connects the topic to a receiver: an SQS queue, a Lambda function, an email address, or a web URL.
+
+When you publish one message, SNS delivers a copy to every subscriber. This is called **fan-out**.
+
+## Fan-out to queues
+
+The most common pattern on AWS is SNS feeding several SQS queues, one per consumer. Each consumer gets its own copy, works at its own pace, and can be down for a while without missing anything.
+
+<Cmd>T=$(aws sns create-topic --name order-placed --query TopicArn --output text)</Cmd>
+
+<Cmd>aws sqs create-queue --queue-name email-jobs</Cmd>
+
+<Cmd>aws sqs create-queue --queue-name stock-jobs</Cmd>
+
+Subscriptions name the queue by its **ARN** (not its URL):
+
+<Cmd>aws sns subscribe --topic-arn $T --protocol sqs --notification-endpoint arn:aws:sqs:ap-south-1:123456789012:email-jobs</Cmd>
+
+<Cmd>aws sns subscribe --topic-arn $T --protocol sqs --notification-endpoint arn:aws:sqs:ap-south-1:123456789012:stock-jobs</Cmd>
+
+Publish once:
+
+<Cmd>{`aws sns publish --topic-arn $T --message '{"order":42,"total":900}'`}</Cmd>
+
+And both queues have it:
+
+<Cmd>aws sqs receive-message --queue-url https://sqs.ap-south-1.amazonaws.com/123456789012/email-jobs</Cmd>
+
+<Cmd>aws sqs receive-message --queue-url https://sqs.ap-south-1.amazonaws.com/123456789012/stock-jobs</Cmd>
+
+Notice the `Body`: your message is wrapped in an SNS **envelope**, with fields like `Type`, `TopicArn` and `Message`, and your text inside `Message`. If you'd rather get just your message, turn on **raw message delivery** for that subscription (the `RawMessageDelivery` attribute).
+
+## Only the messages you want
+
+Maybe the warehouse only cares about big orders. A **filter policy** on a subscription lets through only messages whose **message attributes** match. Attributes are labels sent alongside a message. First find the stock-jobs subscription:
+
+<Cmd>{`SUB=$(aws sns list-subscriptions-by-topic --topic-arn $T --query "Subscriptions[?contains(Endpoint, 'stock')].SubscriptionArn | [0]" --output text)`}</Cmd>
+
+<Cmd>{`aws sns set-subscription-attributes --subscription-arn $SUB --attribute-name FilterPolicy --attribute-value '{"kind":["big"]}'`}</Cmd>
+
+<Cmd>{`aws sns publish --topic-arn $T --message "a small order" --message-attributes '{"kind":{"DataType":"String","StringValue":"small"}}'`}</Cmd>
+
+email-jobs gets this message; stock-jobs doesn't. Publish again with `"StringValue":"big"` and both get it.
+
+## SNS or SQS?
+
+They solve different problems and are usually used together:
+
+- **SQS** holds work until one consumer takes it (one message, one worker).
+- **SNS** copies an event to many listeners right away, and keeps nothing.
+
+So: SNS to fan out, SQS behind each listener to buffer.
+
+<Note>
+On a real account, a queue also needs a **queue policy** that allows the topic to send to it, or deliveries are silently dropped. The console adds it for you when you subscribe there; from the CLI you add it yourself with `aws sqs set-queue-attributes` and a `Policy`. This practice account skips that check, and so does Floci.
+</Note>
+
+<Goals />
+
+<Floci>{`T=$(aws sns create-topic --name order-placed --query TopicArn --output text)
+aws sqs create-queue --queue-name email-jobs
+aws sns subscribe --topic-arn $T --protocol sqs --notification-endpoint arn:aws:sqs:ap-south-1:000000000000:email-jobs
+# Floci's default account id is 000000000000. Check yours with: aws sts get-caller-identity`}</Floci>
+
+## What to remember
+
+- Publish once to a topic, and every subscriber gets a copy.
+- SNS feeding one SQS queue per consumer is the standard fan-out pattern.
+- Messages to SQS arrive in an envelope unless raw delivery is on.
+- Filter policies let a subscriber receive only matching messages.
+
+<Quiz />

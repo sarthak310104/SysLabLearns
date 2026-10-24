@@ -3,6 +3,7 @@ import { A4, A5, A6, A7, A8 } from "./system-design/presets2";
 import { A9, A10, A11, A12 } from "./system-design/presets3";
 import type { Preset } from "@/lib/goals";
 import { labBySlug, type ProtocolLab } from "./protocols";
+import { awsLabBySlug, type AwsLabDef } from "./aws/labs";
 
 export interface Module {
   code: string;
@@ -13,12 +14,14 @@ export interface Module {
   preset?: Preset;
   /** Protocol modules: the coding lab, whose stages are the goals. */
   lab?: ProtocolLab;
+  /** AWS modules: steps checked against the practice account. */
+  awsLab?: AwsLabDef;
   /** Shown instead of a link while the module isn't built yet. */
   comingIn?: string;
 }
 
 export interface Track {
-  id: "system-design" | "protocols";
+  id: "system-design" | "protocols" | "aws";
   title: string;
   blurb: string;
   modules: Module[];
@@ -61,6 +64,22 @@ export const TRACKS: Track[] = [
   },
 ];
 
+TRACKS.push({
+  id: "aws",
+  title: "AWS hands-on",
+  blurb: "A practice AWS account in your browser: type real AWS CLI commands, build real things, and break nothing. Starts from zero.",
+  modules: [
+    { code: "C1", title: "The cloud, and your first commands", breaks: "Nothing yet: learn the terminal, the AWS CLI, and who you are to AWS.", slug: "c1-cloud-basics", awsLab: awsLabBySlug("c1-cloud-basics") },
+    { code: "C2", title: "S3: storing files", breaks: "Your files are private by default, and a link to share them can expire.", slug: "c2-s3", awsLab: awsLabBySlug("c2-s3") },
+    { code: "C3", title: "IAM: who can do what", breaks: "A new teammate can't do anything, then can do too much.", slug: "c3-iam", awsLab: awsLabBySlug("c3-iam") },
+    { code: "C4", title: "SQS: queues", breaks: "A worker crashes mid-job and the message comes back.", slug: "c4-sqs", awsLab: awsLabBySlug("c4-sqs") },
+    { code: "C5", title: "SNS: one event, many listeners", breaks: "Two services both need to hear about every order.", slug: "c5-sns", awsLab: awsLabBySlug("c5-sns") },
+    { code: "C6", title: "DynamoDB: a database with no servers", breaks: "A scan reads the whole table to find three items.", slug: "c6-dynamodb", awsLab: awsLabBySlug("c6-dynamodb") },
+    { code: "C7", title: "Lambda: code without servers", breaks: "Your function runs, but nothing shows up in the logs.", slug: "c7-lambda", awsLab: awsLabBySlug("c7-lambda") },
+    { code: "C8", title: "Capstone: a serverless notes API", breaks: "The API returns 500 until two permissions are right.", slug: "c8-serverless-api", awsLab: awsLabBySlug("c8-serverless-api") },
+  ],
+});
+
 export const LESSONS = TRACKS.flatMap((t) => t.modules).filter((m): m is Module & { slug: string; preset: Preset } => Boolean(m.slug && m.preset));
 
 export const PROTOCOL_LESSONS = TRACKS.flatMap((t) => t.modules).filter((m): m is Module & { slug: string; lab: ProtocolLab } => Boolean(m.slug && m.lab));
@@ -70,9 +89,16 @@ export function protocolLessonBySlug(slug: string) {
   return i < 0 ? null : { lesson: PROTOCOL_LESSONS[i], prev: PROTOCOL_LESSONS[i - 1] ?? null, next: PROTOCOL_LESSONS[i + 1] ?? null };
 }
 
+export const AWS_LESSONS = TRACKS.flatMap((t) => t.modules).filter((m): m is Module & { slug: string; awsLab: AwsLabDef } => Boolean(m.slug && m.awsLab));
+
+export function awsLessonBySlug(slug: string) {
+  const i = AWS_LESSONS.findIndex((l) => l.slug === slug);
+  return i < 0 ? null : { lesson: AWS_LESSONS[i], prev: AWS_LESSONS[i - 1] ?? null, next: AWS_LESSONS[i + 1] ?? null };
+}
+
 /** The goals (or stages) a module tracks, as ids. */
 export function moduleGoalIds(m: Module): string[] {
-  return m.preset?.goals.map((g) => g.id) ?? m.lab?.stages.map((s) => s.id) ?? [];
+  return m.preset?.goals.map((g) => g.id) ?? m.lab?.stages.map((s) => s.id) ?? m.awsLab?.steps.map((s) => s.id) ?? [];
 }
 
 export function lessonBySlug(slug: string) {

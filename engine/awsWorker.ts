@@ -13,7 +13,7 @@ export type AwsCommand =
   | { type: "write"; id: number; path: string; content: string };
 
 export type AwsReply =
-  | { type: "ready" }
+  | { type: "ready"; commands: Record<string, string[]> }
   | { type: "result"; id: number; result: ExecResult; state: AwsState }
   | { type: "state"; state: AwsState };
 
@@ -25,7 +25,8 @@ self.onmessage = async (e: MessageEvent<AwsCommand>) => {
   const m = e.data;
   if (m.type === "init") {
     lab = new AwsLab(m.state);
-    post({ type: "ready" });
+    const commands = Object.fromEntries(Object.entries(lab.services).map(([k, v]) => [k, Object.keys(v.commands)]));
+    post({ type: "ready", commands });
     return;
   }
   if (!lab) return;

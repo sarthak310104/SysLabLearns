@@ -1,0 +1,90 @@
+S3 (Simple Storage Service) stores files. Photos people upload, backups, a website's images and scripts, logs, data exports: if it's a file, it probably lives in S3. It's one of the oldest AWS services, and it's built to almost never lose anything.
+
+## Buckets and objects
+
+S3 has two ideas:
+
+- A **bucket** is a container you create, with a name.
+- An **object** is a file inside it. Each object has a **key**, which is its name, like `photos/cat.jpg`.
+
+Bucket names are **global**: no two AWS customers anywhere can have the same bucket name. So `test` and `photos` were taken years ago. Put something unique in yours, like your name and a year. Names are lowercase letters, numbers, dots and hyphens.
+
+<Cmd>aws s3 mb s3://yourname-notes-2026</Cmd>
+
+`mb` means "make bucket". Change `yourname` to your own name first: click into the terminal and edit before pressing Enter. If you get `BucketAlreadyExists`, someone else has it, so try another name.
+
+## Uploading and listing
+
+`aws s3 cp` copies files, in either direction. A path starting with `s3://` is in S3; anything else is on your computer.
+
+<Cmd>aws s3 cp hello.txt s3://yourname-notes-2026/</Cmd>
+
+Make another file and upload it under a "folder":
+
+<Cmd>echo "meow" > cat.txt</Cmd>
+
+<Cmd>aws s3 cp cat.txt s3://yourname-notes-2026/photos/cat.txt</Cmd>
+
+<Cmd>aws s3 ls s3://yourname-notes-2026</Cmd>
+
+You'll see `PRE photos/` next to `hello.txt`. Here's a secret: S3 has no real folders. The object's key is literally the text `photos/cat.txt`. The CLI groups keys that share a **prefix** before the slash so they look like folders, which is all you need almost all the time.
+
+To download, swap the order. `./` means "here, with the same file name":
+
+<Cmd>aws s3 cp s3://yourname-notes-2026/photos/cat.txt ./</Cmd>
+
+## Private by default
+
+Every object has a web address. Try opening yours:
+
+<Cmd>curl https://yourname-notes-2026.s3.ap-south-1.amazonaws.com/hello.txt</Cmd>
+
+`curl` fetches a URL, like a browser would. You get `AccessDenied`. That's good. New buckets have **Block Public Access** turned on, and nothing is readable without permission. Many real data leaks happened because someone made a bucket public by accident, so AWS now makes that hard to do.
+
+## Sharing safely: presigned URLs
+
+To let someone download one file for a while, without making anything public, make a **presigned URL**. It's a normal link with a signature added, made with your credentials, and it expires.
+
+<Cmd>URL=$(aws s3 presign s3://yourname-notes-2026/hello.txt --expires-in 300)</Cmd>
+
+<Cmd>curl "$URL"</Cmd>
+
+Anyone holding that link can download that one file for 300 seconds, then it stops working. This terminal can fast-forward time: run `sleep 301` and try the same `curl` again to see it expire.
+
+## Versioning: an undo button
+
+Overwrite a file in S3 and the old one is gone, unless **versioning** is on. With versioning, S3 keeps every version, and deleting just hides the latest.
+
+<Cmd>aws s3api put-bucket-versioning --bucket yourname-notes-2026 --versioning-configuration Status=Enabled</Cmd>
+
+<Cmd>echo "version two" > hello.txt</Cmd>
+
+<Cmd>aws s3 cp hello.txt s3://yourname-notes-2026/hello.txt</Cmd>
+
+<Cmd>aws s3api list-object-versions --bucket yourname-notes-2026</Cmd>
+
+Both versions are listed, each with a `VersionId`. To get an old one back, use `aws s3api get-object` with `--version-id`. Versioning is cheap insurance for anything you can't afford to lose.
+
+<Note>
+You just used two commands: `aws s3` (the friendly one, for everyday copying) and `aws s3api` (one command per S3 API operation, for everything else). They talk to the same service. One `s3api` gotcha: outside us-east-1, `create-bucket` needs `--create-bucket-configuration LocationConstraint=ap-south-1`, or it fails. `aws s3 mb` adds that for you.
+</Note>
+
+## What it costs, roughly
+
+S3 charges for how much you store per month, for requests, and for data sent out to the internet. Storing a few gigabytes costs very little. Large amounts of data downloaded by the public cost the most. That's why big sites put a CDN like CloudFront in front of S3 (lesson A9).
+
+<Goals />
+
+<Floci>{`aws s3 mb s3://yourname-notes-2026
+aws s3 cp hello.txt s3://yourname-notes-2026/
+aws s3 ls s3://yourname-notes-2026
+aws s3 presign s3://yourname-notes-2026/hello.txt --expires-in 300`}</Floci>
+
+## What to remember
+
+- Buckets hold objects. Bucket names are global, and keys can look like folder paths.
+- `aws s3 cp` copies either way, and `aws s3 ls` lists.
+- Everything is private by default. Share one file for a while with a presigned URL.
+- Turn on versioning for anything you can't lose.
+
+<Quiz />
