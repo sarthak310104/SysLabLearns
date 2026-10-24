@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "worker": "esbuild engine/worker.ts --bundle --format=esm --minify --target=es2022 --outfile=public/engine-worker.js && esbuild engine/protocolWorker.ts --bundle --format=esm --minify --target=es2022 --outfile=public/protocol-worker.js",
+    "worker": "esbuild engine/worker.ts --bundle --format=esm --minify --target=es2022 --outfile=public/engine-worker.js && esbuild engine/protocolWorker.ts --bundle --format=esm --minify --target=es2022 --outfile=public/protocol-worker.js && esbuild engine/awsWorker.ts --bundle --format=esm --minify --target=es2022 --outfile=public/aws-worker.js",
     "predev": "npm run worker",
     "dev": "next dev",
     "prebuild": "npm run worker",

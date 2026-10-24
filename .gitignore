@@ -9,3 +9,4 @@ next-env.d.ts
 .vercel
 public/engine-worker.js
 public/protocol-worker.js
+public/aws-worker.js

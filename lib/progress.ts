@@ -30,7 +30,15 @@ interface CodeRow {
   updatedAt: number;
 }
 
+interface AwsRow {
+  id: string;
+  state: unknown;
+  history: unknown[];
+  updatedAt: number;
+}
+
 class LabDB extends Dexie {
+  aws!: Table<AwsRow, string>;
   code!: Table<CodeRow, string>;
   goals!: Table<GoalRow, string>;
   designs!: Table<DesignRow, string>;
@@ -41,6 +49,7 @@ class LabDB extends Dexie {
     this.version(1).stores({ goals: "id, lesson", designs: "id, updatedAt" });
     this.version(2).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson" });
     this.version(3).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab" });
+    this.version(4).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab", aws: "id" });
   }
 }
 
@@ -119,6 +128,22 @@ export async function loadLabCode(lab: string): Promise<string | null> {
 export async function saveLabCode(lab: string, code: string): Promise<void> {
   try {
     await getDb()?.code.put({ lab, code, updatedAt: Date.now() });
+  } catch {}
+}
+
+/** The emulated AWS account (shared by every AWS lesson, like a real account). */
+export async function loadAwsAccount(): Promise<{ state: unknown; history: unknown[] } | null> {
+  try {
+    const row = await getDb()?.aws.get("account");
+    return row ? { state: row.state, history: row.history } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveAwsAccount(state: unknown, history: unknown[]): Promise<void> {
+  try {
+    await getDb()?.aws.put({ id: "account", state, history: history.slice(-300), updatedAt: Date.now() });
   } catch {}
 }
 
