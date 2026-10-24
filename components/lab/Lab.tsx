@@ -54,7 +54,7 @@ function toFlow(graph: Graph): { nodes: LabFlowNode[]; edges: Edge[] } {
       id: n.id,
       type: "lab",
       position: n.position,
-      data: { kind: n.kind, label: n.label, config: withDefaults(n.kind, n.config) },
+      data: { kind: n.kind, label: n.label, config: withDefaults(n.kind, n.config), region: n.region },
     })),
     edges: graph.edges.map((e) => ({ ...EDGE_DEFAULTS, id: e.id, source: e.source, target: e.target })),
   };
@@ -62,7 +62,7 @@ function toFlow(graph: Graph): { nodes: LabFlowNode[]; edges: Edge[] } {
 
 function toGraph(nodes: LabFlowNode[], edges: Edge[]): Graph {
   return {
-    nodes: nodes.map((n) => ({ id: n.id, kind: n.data.kind, label: n.data.label, config: n.data.config, position: n.position })),
+    nodes: nodes.map((n) => ({ id: n.id, kind: n.data.kind, label: n.data.label, config: n.data.config, position: n.position, ...(n.data.region ? { region: n.data.region } : {}) })),
     edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
   };
 }
@@ -246,6 +246,7 @@ function LabInner(props: LabProps) {
       canDelete={editable}
       onConfig={(id, config) => updateData(id, { config })}
       onRename={(id, label) => updateData(id, { label })}
+      onRegion={(id, region) => updateData(id, { region })}
       onFault={sim.fault}
       onDelete={removeNode}
       onDeleteLink={removeLink}

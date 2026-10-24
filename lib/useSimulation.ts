@@ -18,7 +18,7 @@ const MAX_INCIDENTS = 30;
 
 /** Structural identity of a graph: changing it restarts the simulation. */
 function structureKey(g: Graph): string {
-  const nodes = g.nodes.map((n) => `${n.id}:${n.kind}:${n.label}`).sort();
+  const nodes = g.nodes.map((n) => `${n.id}:${n.kind}:${n.label}:${n.region ?? ""}`).sort();
   const edges = g.edges.map((e) => `${e.source}>${e.target}`).sort();
   return nodes.join(",") + "|" + edges.join(",");
 }

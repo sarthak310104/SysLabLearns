@@ -186,14 +186,15 @@ describe("A7 timeouts, retries and breakers", () => {
 });
 
 describe("A8 partitions", () => {
+  const inRegion = (n: ReturnType<typeof node>, region: "frankfurt" | "virginia") => ({ ...n, region });
   const graph = (mode: "async" | "sync"): Graph => ({
     nodes: [
-      node("eu", "client", { rps: 150, writeShare: 0.3, keySpace: 1000, hotShare: 0.5 }),
-      node("us", "client", { rps: 150, writeShare: 0.3, keySpace: 1000, hotShare: 0.5 }),
-      node("euApi", "server", { workers: 32, serviceMs: 3 }),
-      node("usApi", "server", { workers: 32, serviceMs: 3 }),
-      node("euDb", "database", { workers: 16, serviceMs: 10, mode }),
-      node("usDb", "database", { workers: 16, serviceMs: 10, mode }),
+      inRegion(node("eu", "client", { rps: 150, writeShare: 0.3, keySpace: 1000, hotShare: 0.5 }), "frankfurt"),
+      inRegion(node("us", "client", { rps: 150, writeShare: 0.3, keySpace: 1000, hotShare: 0.5 }), "virginia"),
+      inRegion(node("euApi", "server", { workers: 32, serviceMs: 3 }), "frankfurt"),
+      inRegion(node("usApi", "server", { workers: 32, serviceMs: 3 }), "virginia"),
+      inRegion(node("euDb", "database", { workers: 16, serviceMs: 10, mode }), "frankfurt"),
+      inRegion(node("usDb", "database", { workers: 16, serviceMs: 10, mode }), "virginia"),
     ],
     edges: [
       edge("eu", "euApi"),

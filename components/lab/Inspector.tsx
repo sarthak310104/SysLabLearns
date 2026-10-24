@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { AnyConfig, ComponentKind, FaultAction, Incident, NodeStats, Snapshot } from "@/engine/model/types";
+import type { AnyConfig, ComponentKind, FaultAction, Incident, NodeStats, Region, Snapshot } from "@/engine/model/types";
+import { REGION_LABEL } from "@/engine/model/defaults";
 import type { HistoryPoint } from "@/lib/useSimulation";
 import { CONTROLS, type Control } from "./controls";
 import { fmtMs, fmtPct, fmtRate, fmtTime } from "./format";
@@ -178,6 +179,7 @@ export interface InspectorProps {
   canDelete: boolean;
   onConfig: (id: string, config: AnyConfig) => void;
   onRename: (id: string, label: string) => void;
+  onRegion: (id: string, region: Region | undefined) => void;
   onFault: (a: FaultAction) => void;
   onDelete: (id: string) => void;
   onDeleteLink: (id: string) => void;
@@ -271,11 +273,30 @@ export function Inspector(p: InspectorProps) {
       )}
       <div className={section}>
         <h2 className="font-medium mb-1">Settings</h2>
+        <div className="py-1.5">
+          <label htmlFor="ctl-region" className="block mb-1">
+            Region
+          </label>
+          <select
+            id="ctl-region"
+            value={sel.data.region ?? ""}
+            onChange={(e) => p.onRegion(sel.id, (e.target.value || undefined) as Region | undefined)}
+            className="w-full bg-panel-2 border border-line rounded-md px-2 py-1.5"
+          >
+            <option value="">Same place as everything else</option>
+            {(Object.keys(REGION_LABEL) as Region[]).map((r) => (
+              <option key={r} value={r}>
+                {REGION_LABEL[r]}
+              </option>
+            ))}
+          </select>
+          <p className="text-[12px] text-muted mt-1">Links to other regions take real time: Mumbai to Virginia is about 95 ms each way.</p>
+        </div>
         {basic.map(row)}
         {advanced.length > 0 && (
           <>
             <button className="text-[13px] text-accent mt-2" aria-expanded={showAdvanced} onClick={() => setShowAdvanced((v) => !v)}>
-              {showAdvanced ? "Hide timeouts and limits" : "Timeouts, retries and limits"}
+              {showAdvanced ? "Fewer settings" : "More settings: timeouts, retries, limits"}
             </button>
             {showAdvanced && <div className="mt-1">{advanced.map(row)}</div>}
           </>

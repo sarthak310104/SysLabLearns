@@ -1,7 +1,7 @@
 import { EventQueue } from "../core/eventQueue";
 import { Rng } from "../core/rng";
 import { Window } from "../core/window";
-import { withDefaults } from "./defaults";
+import { REGION_LATENCY, withDefaults } from "./defaults";
 import type {
   AnyConfig,
   CacheConfig,
@@ -17,6 +17,7 @@ import type {
   NodeStats,
   NodeStatus,
   QueueConfig,
+  Region,
   ReplicaConfig,
   ServerConfig,
   Snapshot,
@@ -32,6 +33,8 @@ interface Req {
   id: number;
   key: number;
   op: Op;
+  /** The client that sent it, for per-client limits. */
+  client: string;
 }
 
 /**
@@ -75,6 +78,7 @@ type Ev =
   | { k: "replAck"; msg: ReplMsg }
   | { k: "apply"; node: string }
   | { k: "tick"; node: string }
+  | { k: "scale"; node: string }
   | { k: "syncTimeout"; frame: Frame };
 
 const STATUS_RANK: Record<NodeStatus, number> = { idle: 0, ok: 1, warning: 2, critical: 3, down: 4 };
@@ -94,6 +98,11 @@ abstract class Runtime {
 
   private busyIntegral = 0;
   private lastMark = 0;
+
+  /** Total busy worker-milliseconds so far. */
+  busyTotal(): number {
+    return this.busyIntegral;
+  }
   private lastSnapIntegral = 0;
   private lastSnapTime = 0;
   private utilEma = 0;
@@ -101,6 +110,7 @@ abstract class Runtime {
   private lastSnapOwn = 0;
   private ownEma = 0;
 
+  region: Region | undefined;
   reportedStatus: NodeStatus = "idle";
   pendingStatus: NodeStatus = "idle";
   pendingCount = 0;
@@ -214,14 +224,26 @@ class ClientRuntime extends Runtime {
     return this.config as ClientConfig;
   }
 
+  /** Spikes and ramps are timed from when the pattern was chosen, not from the start of the run. */
+  patternSince = 0;
+  lastPattern: string | null = null;
+
   rateAt(t: number): number {
     const { rps, pattern } = this.cfg;
+    const since = t - this.patternSince;
     if (pattern === "spike") {
-      const phase = (t % 10000) / 1000;
+      const phase = (since % 10000) / 1000;
       return phase >= 6 && phase < 8 ? rps * 4 : rps;
     }
-    if (pattern === "ramp") return rps * Math.min(1, t / 30000);
+    if (pattern === "ramp") return rps * Math.min(1, since / 30000);
     return rps;
+  }
+
+  onConfigChange(): void {
+    if (this.cfg.pattern !== this.lastPattern) {
+      this.lastPattern = this.cfg.pattern;
+      this.patternSince = this.sim.now;
+    }
   }
 
   pickKey(): number {
@@ -243,7 +265,7 @@ class ClientRuntime extends Runtime {
     const sim = this.sim;
     if (send && !this.down && this.out.length) {
       const op: Op = sim.rng.next() < this.cfg.writeShare ? "write" : "read";
-      const req: Req = { id: sim.nextReqId++, key: this.pickKey(), op };
+      const req: Req = { id: sim.nextReqId++, key: this.pickKey(), op, client: this.id };
       const origin: Frame = { req, node: this.id, arrived: sim.now, edgeId: null, parent: null, dead: false, pending: null, attempts: 1 };
       this.startedWin.add(sim.now, 0, true);
       this.attempt(origin);
@@ -345,10 +367,74 @@ class PoolRuntime extends Runtime {
     return this.config as ServerConfig & DatabaseConfig & ReplicaConfig;
   }
   get workers(): number {
-    return Math.max(1, Math.floor(this.cfg.workers));
+    return Math.max(1, Math.floor(this.cfg.workers)) + this.extraWorkers;
   }
   get busyCount(): number {
     return this.busy.size;
+  }
+
+  /* ---------- servers: autoscaling ---------- */
+
+  extraWorkers = 0;
+  bootingWorkers = 0;
+  scaleScheduled = false;
+  private scaleIntegral = 0;
+  private scaleMark = 0;
+  private lowSince: number | null = null;
+
+  /** Average busy share since the last autoscaling check. */
+  private scaleUtilization(): number {
+    const now = this.sim.now;
+    this.markBusy();
+    const used = this.busyTotal() - this.scaleIntegral;
+    const dt = now - this.scaleMark;
+    this.scaleIntegral = this.busyTotal();
+    this.scaleMark = now;
+    return dt > 0 ? used / (dt * this.workers) : 0;
+  }
+
+  ensureScaling(): void {
+    if (this.kind === "server" && this.cfg.autoscale && !this.scaleScheduled) {
+      this.scaleScheduled = true;
+      this.scaleMark = this.sim.now;
+      this.scaleIntegral = this.busyTotal();
+      this.sim.schedule(this.sim.now + 2000, { k: "scale", node: this.id });
+    }
+  }
+
+  /** Every 2 s: busy over 70% starts new workers (they take bootSeconds); idle under 30% for 10 s removes some. */
+  scale(): void {
+    this.scaleScheduled = false;
+    if (!this.cfg.autoscale) {
+      this.extraWorkers = 0;
+      return;
+    }
+    const now = this.sim.now;
+    const u = this.scaleUtilization();
+    const base = Math.max(1, Math.floor(this.cfg.workers));
+    const max = Math.max(base, Math.floor(this.cfg.maxWorkers));
+    if (u > 0.7 && this.workers + this.bootingWorkers < max && !this.down) {
+      const add = Math.min(max - this.workers - this.bootingWorkers, Math.max(1, Math.ceil(this.workers * 0.5)));
+      this.bootingWorkers += add;
+      this.sim.schedule(now + Math.max(0, this.cfg.bootSeconds) * 1000, { k: "scale", node: `${this.id}\u0000boot:${add}` });
+      this.lowSince = null;
+    } else if (u < 0.3 && this.extraWorkers > 0) {
+      this.lowSince ??= now;
+      if (now - this.lowSince >= 10000) {
+        this.markBusy();
+        this.extraWorkers = Math.max(0, this.extraWorkers - Math.max(1, Math.ceil(this.extraWorkers / 2)));
+        this.lowSince = now;
+      }
+    } else this.lowSince = null;
+    this.ensureScaling();
+  }
+
+  booted(n: number): void {
+    this.bootingWorkers = Math.max(0, this.bootingWorkers - n);
+    if (!this.cfg.autoscale) return;
+    this.markBusy();
+    this.extraWorkers += n;
+    this.pull();
   }
   get queueLength(): number {
     return this.queue.length;
@@ -569,6 +655,8 @@ class PoolRuntime extends Runtime {
   }
 
   onConfigChange(): void {
+    this.ensureScaling();
+    if (!this.cfg.autoscale) this.extraWorkers = 0;
     this.pull();
     while (this.queue.length > this.queueLimit) this.sim.reply(this.queue.pop()!, false);
     // A new timeout also applies to calls that are already waiting, so stuck workers can recover.
@@ -596,6 +684,7 @@ class PoolRuntime extends Runtime {
       s.unreplicated = this.unsynced.size;
       s.lostUpdates = this.lostUpdates;
     }
+    if (this.kind === "server" && this.cfg.autoscale) s.booting = this.bootingWorkers;
     if (this.kind === "server" && this.cfg.breaker) {
       s.breakerOpen = [...this.breakers.values()].some((b) => this.sim.now < b.openUntil);
     }
@@ -617,32 +706,69 @@ function hashKey(key: number): number {
 class LoadBalancerRuntime extends Runtime {
   waiting = new Map<Frame, string>();
   outstanding = new Map<string, number>();
-  tokens = 0;
-  lastRefill = 0;
+  buckets = new Map<string, { tokens: number; at: number }>();
   limited = new Window(1000);
+  private ringCache: { key: string; points: { at: number; edge: GraphEdge }[] } | null = null;
 
   get cfg(): LoadBalancerConfig {
     return this.config as LoadBalancerConfig;
   }
 
   /** Token bucket: refills at the limit per second, with a small burst allowance. */
-  allow(): boolean {
+  allow(client: string): boolean {
     const limit = this.cfg.rateLimit;
     if (!limit) return true;
     const now = this.sim.now;
+    const id = this.cfg.rateLimitScope === "perClient" ? client : "*";
+    let b = this.buckets.get(id);
+    if (!b) this.buckets.set(id, (b = { tokens: 0, at: now }));
     const burst = Math.max(1, limit / 10);
-    this.tokens = Math.min(burst, this.tokens + ((now - this.lastRefill) / 1000) * limit);
-    this.lastRefill = now;
-    if (this.tokens >= 1) {
-      this.tokens -= 1;
+    b.tokens = Math.min(burst, b.tokens + ((now - b.at) / 1000) * limit);
+    b.at = now;
+    if (b.tokens >= 1) {
+      b.tokens -= 1;
       return true;
     }
     return false;
   }
 
+  /** A consistent-hash ring: each target owns 64 points, so adding one only takes small slices from the rest. */
+  ring(): { at: number; edge: GraphEdge }[] {
+    const key = this.out.map((e) => e.id).join("|");
+    if (this.ringCache?.key === key) return this.ringCache.points;
+    const points: { at: number; edge: GraphEdge }[] = [];
+    for (const e of this.out) {
+      let seed = 0;
+      for (let i = 0; i < e.target.length; i++) seed = (Math.imul(seed, 31) + e.target.charCodeAt(i)) | 0;
+      for (let v = 0; v < 64; v++) points.push({ at: hashKey(seed * 131 + v * 7919 + 17), edge: e });
+    }
+    points.sort((a, b) => a.at - b.at);
+    this.ringCache = { key, points };
+    return points;
+  }
+
+  ringOwner(key: number): GraphEdge | undefined {
+    const pts = this.ring();
+    if (!pts.length) return undefined;
+    const h = hashKey(key);
+    let lo = 0;
+    let hi = pts.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (pts[mid].at < h) lo = mid + 1;
+      else hi = mid;
+    }
+    // With health checks, walk round the ring past targets that are down.
+    for (let i = 0; i < pts.length; i++) {
+      const e = pts[(lo + i) % pts.length].edge;
+      if (!this.cfg.healthChecks || !this.sim.runtime(e.target)?.down) return e;
+    }
+    return undefined;
+  }
+
   arrive(f: Frame): void {
     if (this.down) return this.sim.reply(f, false);
-    if (!this.allow()) {
+    if (!this.allow(f.req.client)) {
       this.limited.add(this.sim.now, 0, true);
       return this.sim.reply(f, false);
     }
@@ -652,7 +778,9 @@ class LoadBalancerRuntime extends Runtime {
   done(f: Frame): void {
     if (f.dead || this.down) return;
     let edge: GraphEdge | undefined;
-    if (this.cfg.strategy === "keyHash") {
+    if (this.cfg.strategy === "consistentHash") {
+      edge = this.ringOwner(f.req.key);
+    } else if (this.cfg.strategy === "keyHash") {
       // Sharding: the key decides the target, healthy or not. Moving a key would mean moving its data.
       edge = this.out.length ? this.out[hashKey(f.req.key) % this.out.length] : undefined;
       if (edge && this.cfg.healthChecks && this.sim.runtime(edge.target)?.down) edge = undefined;
@@ -938,7 +1066,9 @@ export class Simulation {
             : n.kind === "queue"
               ? new QueueRuntime(...args)
               : new PoolRuntime(...args);
+    rt.region = n.region;
     this.runtimes.set(n.id, rt);
+    rt.onConfigChange();
     if (rt instanceof ClientRuntime) this.queue.push(this.now + this.rng.next() * 5, { k: "gen", node: rt.id, send: false });
   }
 
@@ -982,6 +1112,7 @@ export class Simulation {
       if (!rt) this.addRuntime(n);
       else {
         rt.label = n.label;
+        rt.region = n.region;
         const cfg = withDefaults(n.kind, n.config);
         if (JSON.stringify(cfg) !== JSON.stringify(rt.config)) this.updateConfig(n.id, cfg);
       }
@@ -999,10 +1130,16 @@ export class Simulation {
   }
 
   /** Network delay for one hop. Links between two databases are cross-region. */
+  /** Network time for one hop: about a millisecond nearby, real distances between regions. */
   private hop(edgeId: string): number {
     const e = this.edges.get(edgeId);
-    const crossRegion = e && this.runtimes.get(e.source)?.kind === "database" && this.runtimes.get(e.target)?.kind === "database";
-    return crossRegion ? 40 + this.rng.next() * 4 : 1 + this.rng.next();
+    const a = e && this.runtimes.get(e.source)?.region;
+    const b = e && this.runtimes.get(e.target)?.region;
+    if (a && b && a !== b) {
+      const base = REGION_LATENCY[a][b];
+      return base * (1 + this.rng.next() * 0.05);
+    }
+    return 1 + this.rng.next();
   }
 
   private recordFlight(edgeId: string, dir: "fwd" | "back", ok: boolean): void {
@@ -1106,6 +1243,14 @@ export class Simulation {
       case "apply": {
         const rt = this.runtimes.get(ev.node);
         if (rt instanceof PoolRuntime) rt.onApply();
+        return;
+      }
+      case "scale": {
+        const [id, boot] = ev.node.split("\u0000boot:");
+        const rt = this.runtimes.get(id);
+        if (!(rt instanceof PoolRuntime)) return;
+        if (boot !== undefined) rt.booted(Number(boot));
+        else rt.scale();
         return;
       }
       case "tick": {

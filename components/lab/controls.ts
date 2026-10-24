@@ -68,11 +68,22 @@ export const CONTROLS: Record<ComponentKind, Control[]> = {
         { value: "roundRobin", label: "Round robin" },
         { value: "leastConnections", label: "Least connections" },
         { value: "random", label: "Random" },
-        { value: "keyHash", label: "By key (shard router)" },
+        { value: "keyHash", label: "By key: hash mod N" },
+        { value: "consistentHash", label: "By key: consistent hashing" },
       ],
     },
     { key: "healthChecks", label: "Health checks", type: "toggle", help: "Stop sending traffic to targets that are down." },
     { key: "rateLimit", label: "Rate limit", type: "range", min: 0, max: 2000, step: 10, unit: "req/s", zeroLabel: "Off", advanced: true, help: "Reject anything above this, fast, before it reaches the servers." },
+    {
+      key: "rateLimitScope",
+      label: "Limit applies to",
+      type: "select",
+      advanced: true,
+      options: [
+        { value: "global", label: "Everyone together" },
+        { value: "perClient", label: "Each client separately" },
+      ],
+    },
   ],
   server: [
     { key: "workers", label: "Workers", type: "range", min: 1, max: 128, step: 1, help: "Requests it can work on at once." },
@@ -80,6 +91,9 @@ export const CONTROLS: Record<ComponentKind, Control[]> = {
     { key: "queueLimit", label: "Queue limit", type: "range", min: 0, max: 1000, step: 10, help: "Waiting requests beyond this are rejected." },
     { key: "timeoutMs", label: "Give up on downstream after", type: "range", min: 0, max: 5000, step: 50, unit: "ms", zeroLabel: "Never", advanced: true },
     { key: "breaker", label: "Circuit breaker", type: "toggle", advanced: true, help: "If most recent calls failed, fail fast for 3 s instead of calling again." },
+    { key: "autoscale", label: "Autoscaling", type: "toggle", help: "Start more workers when over 70% busy, remove them when quiet. Workers above sets the minimum." },
+    { key: "maxWorkers", label: "Autoscaling maximum", type: "range", min: 1, max: 256, step: 1, advanced: true },
+    { key: "bootSeconds", label: "Time for a new worker to start", type: "range", min: 0, max: 60, step: 1, unit: "s", advanced: true },
   ],
   cache: [
     { key: "capacity", label: "Capacity", type: "range", min: 10, max: 20000, step: 10, unit: "keys" },

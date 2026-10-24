@@ -2,12 +2,13 @@
 
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { memo } from "react";
-import type { AnyConfig, ComponentKind, NodeStats, NodeStatus } from "@/engine/model/types";
+import type { AnyConfig, ComponentKind, NodeStats, NodeStatus, Region } from "@/engine/model/types";
+import { REGION_LABEL } from "@/engine/model/defaults";
 import { Glyph } from "./glyphs";
 import { fmtMs, fmtPct, fmtRate } from "./format";
 import { useSnapshot } from "./LabContext";
 
-export type LabNodeData = { kind: ComponentKind; label: string; config: AnyConfig };
+export type LabNodeData = { kind: ComponentKind; label: string; config: AnyConfig; region?: Region };
 export type LabFlowNode = Node<LabNodeData, "lab">;
 
 const BORDER: Record<NodeStatus, string> = {
@@ -104,6 +105,7 @@ function Body({ s, kind }: { s: NodeStats | undefined; kind: ComponentKind }) {
       {s.unreplicated !== undefined && <Metric label="Not yet synced" value={`${s.unreplicated}`} tone={s.unreplicated > 50 ? "warn" : undefined} />}
       {(s.lostUpdates ?? 0) > 0 && <Metric label="Lost updates" value={`${s.lostUpdates}`} tone="crit" />}
       {s.breakerOpen && <Metric label="Breaker" value="Open" tone="warn" />}
+      {(s.booting ?? 0) > 0 && <Metric label="Starting up" value={`+${s.booting}`} tone="warn" />}
       <Bar value={util} tone={utilTone} />
     </>
   );
@@ -134,6 +136,7 @@ function LabNodeImpl({ id, data, selected }: NodeProps<LabFlowNode>) {
         </span>
         <span className="truncate">{data.label}</span>
         {s && s.slowFactor > 1 && !s.down && <span className="ml-auto text-[11px] text-warn">Slowed</span>}
+        {data.region && !(s && s.slowFactor > 1) && <span className="ml-auto text-[11px] text-muted font-normal">{REGION_LABEL[data.region]}</span>}
       </div>
       <div className="px-3 pb-2.5 space-y-0.5">
         <Body s={s} kind={data.kind} />

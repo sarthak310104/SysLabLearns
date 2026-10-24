@@ -1,4 +1,4 @@
-import type { AnyConfig, ComponentKind, ConfigByKind } from "./types";
+import type { AnyConfig, ComponentKind, ConfigByKind, Region } from "./types";
 
 export const DEFAULT_CONFIG: ConfigByKind = {
   client: {
@@ -13,8 +13,8 @@ export const DEFAULT_CONFIG: ConfigByKind = {
     backoff: "exponential",
     retryBudget: 0,
   },
-  loadBalancer: { strategy: "roundRobin", healthChecks: false, rateLimit: 0 },
-  server: { workers: 4, serviceMs: 40, queueLimit: 100, timeoutMs: 0, breaker: false },
+  loadBalancer: { strategy: "roundRobin", healthChecks: false, rateLimit: 0, rateLimitScope: "global" },
+  server: { workers: 4, serviceMs: 40, queueLimit: 100, timeoutMs: 0, breaker: false, autoscale: false, maxWorkers: 32, bootSeconds: 10 },
   cache: { capacity: 1000, ttlMs: 30000 },
   database: { workers: 8, serviceMs: 25, queueLimit: 200, mode: "async" },
   replica: { workers: 8, serviceMs: 25, queueLimit: 200, applyMs: 3 },
@@ -57,3 +57,16 @@ export function defaultConfig<K extends ComponentKind>(kind: K): ConfigByKind[K]
 export function withDefaults(kind: ComponentKind, config: Partial<AnyConfig> | undefined): AnyConfig {
   return { ...DEFAULT_CONFIG[kind], ...(config ?? {}) } as AnyConfig;
 }
+
+export const REGION_LABEL: Record<Region, string> = {
+  mumbai: "Mumbai",
+  frankfurt: "Frankfurt",
+  virginia: "Virginia",
+};
+
+/** One-way network time between regions, in ms (roughly real-world). */
+export const REGION_LATENCY: Record<Region, Record<Region, number>> = {
+  mumbai: { mumbai: 1, frankfurt: 60, virginia: 95 },
+  frankfurt: { mumbai: 60, frankfurt: 1, virginia: 45 },
+  virginia: { mumbai: 95, frankfurt: 45, virginia: 1 },
+};

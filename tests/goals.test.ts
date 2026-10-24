@@ -5,6 +5,7 @@ import type { AnyConfig, ComponentKind, FaultAction, Graph, GraphNode } from "@/
 import { GoalTracker, type Preset } from "@/lib/goals";
 import { A1, A2, A3 } from "@/content/system-design/presets";
 import { A4, A5, A6, A7, A8 } from "@/content/system-design/presets2";
+import { A9, A10, A11, A12 } from "@/content/system-design/presets3";
 
 /**
  * Plays a lesson the way a learner would: the graph can be edited (which
@@ -159,5 +160,47 @@ describe("every lesson goal can be completed", () => {
       { at: 17000, fault: { type: "cut", edgeIds: link } },
     ], 24000);
     expect([...done].sort()).toEqual(allGoals(A8));
+  });
+
+  it("A9", () => {
+    const withCdn = (g: Graph): Graph => ({
+      nodes: [...g.nodes, { ...nd("cdn", "cache", 220, 60, { capacity: 2000 }), region: "mumbai" }],
+      edges: [...g.edges.filter((x) => x.id !== "e-users-origin"), ed("users", "cdn"), ed("cdn", "origin")],
+    });
+    const done = play(A9, A9.graph, [
+      { at: 5000, graph: withCdn },
+      { at: 16000, fault: { type: "crash", nodeId: "origin" } },
+    ], 22000);
+    expect([...done].sort()).toEqual(allGoals(A9));
+  });
+
+  it("A10", () => {
+    const addShard = (id: string, y: number) => (g: Graph) => addNodes(g, [nd(id, "cache", 720, y, { capacity: 5000, ttlMs: 600000 })], [ed("router", id), ed(id, "db")]);
+    const done = play(A10, A10.graph, [
+      { at: 20000, graph: addShard("c5", 600) },
+      { at: 30000, config: "router", patch: { strategy: "consistentHash" } },
+      { at: 50000, graph: addShard("c6", 750) },
+      { at: 62000, config: "router", patch: { healthChecks: true } },
+      { at: 63000, fault: { type: "crash", nodeId: "c2" } },
+    ], 75000);
+    expect([...done].sort()).toEqual(allGoals(A10));
+  });
+
+  it("A11", () => {
+    const done = play(A11, A11.graph, [
+      { at: 4000, config: "gateway", patch: { rateLimit: 450, rateLimitScope: "global" } },
+      { at: 12000, config: "gateway", patch: { rateLimit: 250, rateLimitScope: "perClient" } },
+    ], 22000);
+    expect([...done].sort()).toEqual(allGoals(A11));
+  });
+
+  it("A12", () => {
+    const done = play(A12, A12.graph, [
+      { at: 2000, config: "web", patch: { autoscale: true } },
+      { at: 2000, config: "users", patch: { rps: 400, pattern: "ramp" } },
+      { at: 50000, config: "users", patch: { pattern: "spike" } },
+      { at: 75000, config: "web", patch: { workers: 72 } },
+    ], 100000);
+    expect([...done].sort()).toEqual(allGoals(A12));
   });
 });

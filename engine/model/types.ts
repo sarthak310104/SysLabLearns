@@ -3,7 +3,8 @@
 export type ComponentKind = "client" | "loadBalancer" | "server" | "cache" | "database" | "replica" | "queue";
 
 export type TrafficPattern = "steady" | "spike" | "ramp";
-export type LbStrategy = "roundRobin" | "leastConnections" | "random" | "keyHash";
+export type LbStrategy = "roundRobin" | "leastConnections" | "random" | "keyHash" | "consistentHash";
+export type Region = "mumbai" | "frankfurt" | "virginia";
 export type Backoff = "none" | "exponential";
 export type ReplicationMode = "async" | "sync";
 
@@ -31,6 +32,8 @@ export interface LoadBalancerConfig {
   healthChecks: boolean;
   /** Max requests per second let through; extra are rejected. 0 = no limit. */
   rateLimit: number;
+  /** Whether the limit is shared by everyone or applies to each client separately. */
+  rateLimitScope: "global" | "perClient";
 }
 
 export interface ServerConfig {
@@ -41,6 +44,11 @@ export interface ServerConfig {
   timeoutMs: number;
   /** Stop calling a downstream that keeps failing, and fail fast instead. */
   breaker: boolean;
+  /** Add workers when busy (and remove them when idle), up to maxWorkers. */
+  autoscale: boolean;
+  maxWorkers: number;
+  /** How long new workers take to start. */
+  bootSeconds: number;
 }
 
 export interface CacheConfig {
@@ -88,6 +96,8 @@ export interface GraphNode {
   label: string;
   config: AnyConfig;
   position: { x: number; y: number };
+  /** Where it runs. Links between regions take real network time. Unset = same place as everything else. */
+  region?: Region;
 }
 
 export interface GraphEdge {
@@ -149,6 +159,8 @@ export interface NodeStats {
   breakerOpen?: boolean;
   /** Load balancer: requests rejected by the rate limit per second. */
   limitedPerSec?: number;
+  /** Server with autoscaling: workers still starting up. */
+  booting?: number;
 }
 
 export interface Flight {
