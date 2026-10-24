@@ -45,6 +45,19 @@ export const CONTROLS: Record<ComponentKind, Control[]> = {
         { value: "exponential", label: "Exponential backoff with jitter" },
       ],
     },
+    {
+      key: "retryBudget",
+      label: "Retry budget",
+      type: "range",
+      min: 0,
+      max: 1,
+      step: 0.05,
+      unit: "%",
+      scale: 100,
+      zeroLabel: "Unlimited",
+      advanced: true,
+      help: "Never retry more than this share of requests. Retries still help with blips, but can't pile on during an outage.",
+    },
   ],
   loadBalancer: [
     {

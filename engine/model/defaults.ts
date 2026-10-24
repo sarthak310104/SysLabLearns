@@ -11,6 +11,7 @@ export const DEFAULT_CONFIG: ConfigByKind = {
     timeoutMs: 0,
     retries: 0,
     backoff: "exponential",
+    retryBudget: 0,
   },
   loadBalancer: { strategy: "roundRobin", healthChecks: false, rateLimit: 0 },
   server: { workers: 4, serviceMs: 40, queueLimit: 100, timeoutMs: 0, breaker: false },

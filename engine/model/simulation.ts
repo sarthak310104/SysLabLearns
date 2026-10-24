@@ -207,6 +207,8 @@ abstract class Runtime {
 
 class ClientRuntime extends Runtime {
   attemptsWin = new Window(1000);
+  startedWin = new Window(1000);
+  retriesWin = new Window(1000);
 
   get cfg(): ClientConfig {
     return this.config as ClientConfig;
@@ -243,6 +245,7 @@ class ClientRuntime extends Runtime {
       const op: Op = sim.rng.next() < this.cfg.writeShare ? "write" : "read";
       const req: Req = { id: sim.nextReqId++, key: this.pickKey(), op };
       const origin: Frame = { req, node: this.id, arrived: sim.now, edgeId: null, parent: null, dead: false, pending: null, attempts: 1 };
+      this.startedWin.add(sim.now, 0, true);
       this.attempt(origin);
     }
     const rate = this.rateAt(sim.now);
@@ -276,14 +279,25 @@ class ClientRuntime extends Runtime {
       this.window.add(now, now - f.arrived, true);
       return;
     }
-    if (f.attempts <= Math.floor(this.cfg.retries)) {
+    if (f.attempts <= Math.floor(this.cfg.retries) && this.withinBudget()) {
       // Exponential backoff with full jitter: wait a random time up to 50ms * 2^n.
       const delay = this.cfg.backoff === "exponential" ? this.sim.rng.next() * 50 * 2 ** (f.attempts - 1) : 0;
       f.attempts++;
+      this.retriesWin.add(now, 0, true);
       this.sim.schedule(now + delay, { k: "retry", frame: f });
       return;
     }
     this.window.add(now, now - f.arrived, false);
+  }
+
+  /** A retry budget caps retries at a share of new requests, so an outage can't multiply the load. */
+  withinBudget(): boolean {
+    const budget = this.cfg.retryBudget ?? 0;
+    if (!budget) return true;
+    const now = this.sim.now;
+    const started = this.startedWin.stats(now).okPerSec;
+    const retried = this.retriesWin.stats(now).okPerSec;
+    return retried < budget * started;
   }
 
   extraStats(s: NodeStats): void {
@@ -557,6 +571,9 @@ class PoolRuntime extends Runtime {
   onConfigChange(): void {
     this.pull();
     while (this.queue.length > this.queueLimit) this.sim.reply(this.queue.pop()!, false);
+    // A new timeout also applies to calls that are already waiting, so stuck workers can recover.
+    const t = this.kind === "server" ? this.cfg.timeoutMs : 0;
+    if (t > 0) for (const f of this.waitingDownstream) if (f.pending) this.sim.schedule(this.sim.now + t, { k: "timeout", frame: f, child: f.pending });
   }
 
   activeFrames(): Frame[] {

@@ -18,7 +18,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { canConnect, defaultConfig, KIND_LABEL, withDefaults } from "@/engine/model/defaults";
 import type { AnyConfig, ComponentKind, Graph } from "@/engine/model/types";
-import type { Goal } from "@/lib/goals";
+import { GoalTracker, type Goal } from "@/lib/goals";
 import { useSimulation } from "@/lib/useSimulation";
 import { FlightEdge } from "./FlightEdge";
 import { Inspector, type SelectedLink } from "./Inspector";
@@ -89,39 +89,18 @@ function LabInner(props: LabProps) {
   }, [graph, onGraphChange]);
 
   /* ---------------- goals ---------------- */
-  const goalState = useRef({ start: new Map<string, number>(), mem: new Map<string, Record<string, unknown>>(), sent: new Map<string, number>(), lastTime: 0 });
-  const doneRef = useRef(new Set(props.completedGoals ?? []));
+  const tracker = useRef<GoalTracker | null>(null);
+  if (!tracker.current && props.goals) tracker.current = new GoalTracker(props.goals, props.completedGoals ?? []);
+  const sentRef = useRef(new Map<string, number>());
   useEffect(() => {
     const snap = sim.snapshot;
-    if (!snap || !props.goals) return;
-    const st = goalState.current;
-    if (snap.time < st.lastTime) {
-      st.start.clear();
-      st.mem.clear();
-    }
-    st.lastTime = snap.time;
-    for (const g of props.goals) {
-      if (doneRef.current.has(g.id)) continue;
-      let mem = st.mem.get(g.id);
-      if (!mem) st.mem.set(g.id, (mem = {}));
-      let ok = false;
-      try {
-        ok = g.check(snap, graph, mem);
-      } catch {
-        ok = false;
-      }
-      let fraction = 0;
-      if (ok) {
-        const start = st.start.get(g.id) ?? snap.time;
-        st.start.set(g.id, start);
-        fraction = g.holdMs ? Math.min(1, (snap.time - start) / g.holdMs) : 1;
-      } else st.start.delete(g.id);
-      const done = fraction >= 1;
-      if (done) doneRef.current.add(g.id);
-      const rounded = Math.round(fraction * 10) / 10;
-      if (st.sent.get(g.id) !== rounded || done) {
-        st.sent.set(g.id, rounded);
-        props.onGoalUpdate?.(g.id, { fraction, done });
+    if (!snap || !tracker.current) return;
+    for (const [id, p] of tracker.current.update(snap, graph)) {
+      // Only report meaningful changes, so the lesson column doesn't re-render 10 times a second.
+      const rounded = Math.round(p.fraction * 10) / 10;
+      if (sentRef.current.get(id) !== rounded || p.done) {
+        sentRef.current.set(id, rounded);
+        props.onGoalUpdate?.(id, p);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

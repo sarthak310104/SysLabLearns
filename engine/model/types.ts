@@ -22,6 +22,8 @@ export interface ClientConfig {
   /** Extra attempts after a failure or timeout. */
   retries: number;
   backoff: Backoff;
+  /** Retries allowed as a share of new requests over the last second. 0 = no cap. */
+  retryBudget: number;
 }
 
 export interface LoadBalancerConfig {

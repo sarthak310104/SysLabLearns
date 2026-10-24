@@ -176,10 +176,12 @@ describe("A7 timeouts, retries and breakers", () => {
     expect(snap.nodes.c.attemptsPerSec! / snap.nodes.c.sendingRps!).toBeGreaterThan(2);
   });
 
-  it("timeouts and a breaker fail fast and calm the storm", () => {
-    const { snap } = script(graph({ retries: 1, backoff: "exponential", apiTimeout: 300, breaker: true }), 15000, slowDb);
-    expect(snap.nodes.c.attemptsPerSec! / snap.nodes.c.sendingRps!).toBeLessThan(1.6);
-    expect(snap.nodes.api.queue).toBeLessThan(60);
+  it("over a cut link, a timeout plus breaker keeps workers free; without them they hang", () => {
+    const cut = { 3000: fault({ type: "cut", edgeIds: ["c->api".replace("c->api", "api->db")] }) };
+    const hung = script(graph({ retries: 0, backoff: "none", apiTimeout: 0, breaker: false }), 8000, cut).snap;
+    const guarded = script(graph({ retries: 0, backoff: "none", apiTimeout: 300, breaker: true }), 8000, cut).snap;
+    expect(hung.nodes.api.busy).toBe(32);
+    expect(guarded.nodes.api.busy).toBeLessThan(16);
   });
 });
 
