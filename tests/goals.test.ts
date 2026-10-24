@@ -17,7 +17,7 @@ type Step =
 
 function play(preset: Preset, start: Graph, steps: Step[], ms: number) {
   let graph = structuredClone(start);
-  let sim = new Simulation(graph, 5);
+  const sim = new Simulation(graph, 5);
   const tracker = new GoalTracker(preset.goals);
   let elapsed = 0;
   const pending = [...steps].sort((a, b) => a.at - b.at);
@@ -35,7 +35,7 @@ function play(preset: Preset, start: Graph, steps: Step[], ms: number) {
       } else if ("fault" in s) sim.applyFault(s.fault);
       else {
         graph = s.graph(graph);
-        sim = new Simulation(graph, 5);
+        sim.applyGraph(graph); // edits apply live, like in the app
       }
     }
     tracker.update(sim.snapshot(), graph);

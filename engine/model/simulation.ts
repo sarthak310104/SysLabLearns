@@ -922,21 +922,34 @@ export class Simulation {
 
   constructor(graph: Graph, seed = 42) {
     this.rng = new Rng(seed);
-    for (const n of graph.nodes) {
-      const args = [n.id, n.kind, n.label, withDefaults(n.kind, n.config), this] as const;
-      const rt =
-        n.kind === "client"
-          ? new ClientRuntime(...args)
-          : n.kind === "loadBalancer"
-            ? new LoadBalancerRuntime(...args)
-            : n.kind === "cache"
-              ? new CacheRuntime(...args)
-              : n.kind === "queue"
-                ? new QueueRuntime(...args)
-                : new PoolRuntime(...args);
-      this.runtimes.set(n.id, rt);
+    for (const n of graph.nodes) this.addRuntime(n);
+    this.wire(graph.edges);
+  }
+
+  private addRuntime(n: Graph["nodes"][number]): void {
+    const args = [n.id, n.kind, n.label, withDefaults(n.kind, n.config), this] as const;
+    const rt =
+      n.kind === "client"
+        ? new ClientRuntime(...args)
+        : n.kind === "loadBalancer"
+          ? new LoadBalancerRuntime(...args)
+          : n.kind === "cache"
+            ? new CacheRuntime(...args)
+            : n.kind === "queue"
+              ? new QueueRuntime(...args)
+              : new PoolRuntime(...args);
+    this.runtimes.set(n.id, rt);
+    if (rt instanceof ClientRuntime) this.queue.push(this.now + this.rng.next() * 5, { k: "gen", node: rt.id, send: false });
+  }
+
+  /** (Re)build every node's outgoing links and each replica's list of primaries. */
+  private wire(edges: GraphEdge[]): void {
+    this.edges.clear();
+    for (const rt of this.runtimes.values()) {
+      rt.out = [];
+      if (rt instanceof PoolRuntime) rt.primaries = [];
     }
-    for (const e of graph.edges) {
+    for (const e of edges) {
       const from = this.runtimes.get(e.source);
       const to = this.runtimes.get(e.target);
       if (!from || !to) continue;
@@ -946,9 +959,35 @@ export class Simulation {
         to.primaries.push(from);
       }
     }
-    for (const rt of this.runtimes.values()) {
-      if (rt instanceof ClientRuntime) this.queue.push(this.rng.next() * 5, { k: "gen", node: rt.id, send: false });
+    for (const id of [...this.cut]) if (!this.edges.has(id)) this.cut.delete(id);
+    for (const id of [...this.buffered.keys()]) if (!this.edges.has(id)) this.buffered.delete(id);
+  }
+
+  /**
+   * Apply an edited graph to the running system without restarting it:
+   * new components start empty, removed ones fail whatever they were holding,
+   * and everything else keeps its state, queues and caches.
+   */
+  applyGraph(graph: Graph): void {
+    const next = new Map(graph.nodes.map((n) => [n.id, n]));
+    for (const [id, rt] of [...this.runtimes]) {
+      const n = next.get(id);
+      if (!n || n.kind !== rt.kind) {
+        rt.crash();
+        this.runtimes.delete(id);
+      }
     }
+    for (const n of graph.nodes) {
+      const rt = this.runtimes.get(n.id);
+      if (!rt) this.addRuntime(n);
+      else {
+        rt.label = n.label;
+        const cfg = withDefaults(n.kind, n.config);
+        if (JSON.stringify(cfg) !== JSON.stringify(rt.config)) this.updateConfig(n.id, cfg);
+      }
+    }
+    this.wire(graph.edges);
+    for (const rt of this.runtimes.values()) if (rt instanceof QueueRuntime) rt.dispatch();
   }
 
   runtime(id: string): Runtime | undefined {
@@ -1082,7 +1121,11 @@ export class Simulation {
       case "arrive":
       case "done": {
         const rt = this.runtimes.get(ev.frame.node);
-        if (!rt) return;
+        if (!rt) {
+          // The component was removed while this request was on its way: it fails.
+          if (ev.k === "arrive") this.reply(ev.frame, false);
+          return;
+        }
         if (ev.k === "arrive") rt.arrive(ev.frame);
         else rt.done(ev.frame);
         return;

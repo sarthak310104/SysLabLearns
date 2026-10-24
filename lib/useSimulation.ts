@@ -79,7 +79,10 @@ export function useSimulation(graph: Graph, seed = 42) {
   useEffect(() => {
     if (!workerRef.current) return;
     if (structureKey(graph) !== lastStructure.current) {
-      load(graph);
+      // Edits apply to the running system; only Restart starts from scratch.
+      lastStructure.current = structureKey(graph);
+      lastConfigs.current = new Map(graph.nodes.map((n) => [n.id, JSON.stringify(n.config)]));
+      send({ type: "graph", graph });
       return;
     }
     for (const n of graph.nodes) {

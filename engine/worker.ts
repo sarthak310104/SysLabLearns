@@ -8,6 +8,7 @@ import type { AnyConfig, FaultAction, Graph, Snapshot } from "./model/types";
 
 export type WorkerCommand =
   | { type: "load"; graph: Graph; seed: number }
+  | { type: "graph"; graph: Graph }
   | { type: "play" }
   | { type: "pause" }
   | { type: "speed"; speed: number }
@@ -41,6 +42,10 @@ onmessage = (e: MessageEvent<WorkerCommand>) => {
     case "load":
       sim = new Simulation(cmd.graph, cmd.seed);
       post();
+      break;
+    case "graph":
+      sim?.applyGraph(cmd.graph);
+      if (!playing) post();
       break;
     case "play":
       playing = true;
