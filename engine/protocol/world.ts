@@ -1,4 +1,4 @@
-import type { Ctx, Handlers, InFlight, NodeId, ProtocolSpec, Step, Timer, World } from "./types";
+import type { Ctx, Handlers, InFlight, NodeId, NodeRec, ProtocolSpec, Step, Timer, World } from "./types";
 
 /* ------------------------------------------------------------------ */
 /* Deterministic randomness, stored in the world itself                */
@@ -87,8 +87,7 @@ export class Runtime {
       random: () => nextRandom(w),
       log: (text) => {
         if (w.mode === "explore") return; // logs aren't part of the state, so a search skips them
-        w.logs.push({ t: w.clock, node: self, text: String(text) });
-        if (w.logs.length > MAX_LOGS) w.logs.shift();
+        w.logs = [...w.logs, { t: w.clock, node: self, text: String(text) }].slice(-MAX_LOGS);
       },
       reply: (value) => {
         const wl = w.workload[self];
@@ -101,7 +100,10 @@ export class Runtime {
 
   /** Call a handler; its return value (if any) replaces the node's state. */
   private call(w: World, node: NodeId, fn: keyof Handlers, ...args: unknown[]): void {
-    const rec = w.nodes[node];
+    // Worlds share unchanged parts with their parent, so copy before changing anything.
+    const old = w.nodes[node];
+    const rec: NodeRec = { ...old, state: fn === "init" ? old.state : clone(old.state) };
+    w.nodes[node] = rec;
     const h = this.roles[rec.role];
     const f = h?.[fn] as ((...a: unknown[]) => unknown) | undefined;
     if (!f) return;
@@ -134,8 +136,12 @@ export class Runtime {
     if (w.mode === "explore") {
       // The network is a set: a message can be delivered any number of times,
       // in any order, or never. That covers loss and duplication at once.
-      const key = stableKey({ seq: 0, from, to, msg: body, due: 0 });
-      if (!w.msgs.some((m) => stableKey(m) === key)) w.msgs.push({ seq: w.seq++, from, to, msg: body, due: 0 });
+      const fresh: InFlight = { seq: w.seq, from, to, msg: body, due: 0 };
+      const key = stableKey(fresh);
+      if (!w.msgs.some((m) => stableKey(m) === key)) {
+        w.seq++;
+        w.msgs.push(fresh);
+      }
       return;
     }
     const net = this.spec.network;
@@ -150,9 +156,25 @@ export class Runtime {
 
   /* ---------------- steps ---------------- */
 
-  /** Apply one step to a copy of the world. */
+  /**
+   * A new world that shares everything with its parent. Containers are copied
+   * so they can change; anything a step modifies is copied before modifying.
+   */
+  private fork(world: World): World {
+    return {
+      ...world,
+      nodes: { ...world.nodes },
+      msgs: [...world.msgs],
+      timers: [...world.timers],
+      workload: clone(world.workload),
+      history: [...world.history],
+      faults: { ...world.faults },
+    };
+  }
+
+  /** Apply one step to a copy of the world. The original is never changed. */
   apply(world: World, step: Step): World {
-    const w = clone(world);
+    const w = this.fork(world);
     switch (step.type) {
       case "deliver": {
         const i = w.msgs.findIndex((m) => m.seq === step.seq);
@@ -160,7 +182,7 @@ export class Runtime {
         // In explore mode the message stays in the network: it may arrive again.
         const m = w.mode === "explore" ? w.msgs[i] : w.msgs.splice(i, 1)[0];
         if (w.mode === "timed") w.clock = Math.max(w.clock, m.due);
-        if (!w.nodes[m.to].crashed) this.call(w, m.to, "onMessage", m.from, m.msg);
+        if (!w.nodes[m.to].crashed) this.call(w, m.to, "onMessage", m.from, clone(m.msg));
         break;
       }
       case "drop": {
@@ -180,20 +202,17 @@ export class Runtime {
         if (i < 0) break;
         const [t] = w.timers.splice(i, 1);
         w.clock = Math.max(w.clock, t.due);
-        if (!w.nodes[t.node].crashed) this.call(w, t.node, "onTimer", { name: t.name, data: t.data });
+        if (!w.nodes[t.node].crashed) this.call(w, t.node, "onTimer", { name: t.name, data: clone(t.data) });
         break;
       }
       case "crash": {
-        const rec = w.nodes[step.node];
-        rec.crashed = true;
+        w.nodes[step.node] = { ...w.nodes[step.node], crashed: true };
         w.timers = w.timers.filter((t) => t.node !== step.node);
         w.faults.crashes++;
         break;
       }
       case "restart": {
-        const rec = w.nodes[step.node];
-        rec.crashed = false;
-        rec.state = {};
+        w.nodes[step.node] = { ...w.nodes[step.node], crashed: false, state: {} };
         this.call(w, step.node, "init");
         if (w.workload[step.node]) this.issueNext(w, step.node);
         break;
@@ -233,7 +252,7 @@ export class Runtime {
   enabled(w: World, budget = this.spec.budget): Step[] {
     const steps: Step[] = [];
     for (const m of w.msgs) steps.push({ type: "deliver", seq: m.seq });
-    for (const t of this.firstTimers(w)) steps.push({ type: "timer", seq: t.seq });
+    if (budget.timers !== false) for (const t of this.firstTimers(w)) steps.push({ type: "timer", seq: t.seq });
     if (w.faults.crashes < budget.crashes) {
       for (const id of this.spec.crashable ?? []) if (!w.nodes[id].crashed) steps.push({ type: "crash", node: id });
     }
@@ -241,10 +260,14 @@ export class Runtime {
     return steps;
   }
 
+  /** Only these invariants are checked (all of them if unset): labs check in stages. */
+  only: string[] | null = null;
+
   /** First broken invariant, or null. A handler that threw always counts. */
   violation(w: World): { name: string; message: string } | null {
     if (w.error) return { name: "Your code threw an error", message: w.error };
     for (const inv of this.spec.invariants) {
+      if (this.only && !this.only.includes(inv.name)) continue;
       let msg: string | null = null;
       try {
         msg = inv.check(w);
@@ -279,23 +302,48 @@ export function stable(x: unknown): string {
   return JSON.stringify(x, sortKeys) ?? "null";
 }
 
+/**
+ * Worlds share unchanged objects, so each object's canonical string can be
+ * computed once and reused by every world that contains it.
+ */
+const pieceCache = new WeakMap<object, string>();
+function cached(o: object, make: () => string): string {
+  let s = pieceCache.get(o);
+  if (s === undefined) {
+    s = make();
+    pieceCache.set(o, s);
+  }
+  return s;
+}
+
 function stableKey(m: InFlight): string {
-  return stable([m.from, m.to, m.msg]);
+  return cached(m, () => stable([m.from, m.to, m.msg]));
 }
 
 /**
  * Two worlds that only differ in message ids, absolute times or logs are the
  * same state: the future can unfold identically from both.
  */
+/** Canonical string for one node's state, cached on the (never-changed-again) record. */
+export function nodeKey(r: NodeRec): string {
+  return cached(r, () => stable(r.state));
+}
+
 export function canonical(w: World): string {
   const nodes = Object.keys(w.nodes)
     .sort()
-    .map((id) => [id, w.nodes[id].crashed, w.nodes[id].state]);
-  const msgs = w.msgs.map(stableKey).sort();
+    .map((id) => {
+      const r = w.nodes[id];
+      return `${id}${r.crashed ? "!" : ""}=${nodeKey(r)}`;
+    })
+    .join(";");
+  const msgs = w.msgs.map(stableKey).sort().join("|");
   const timers = [...w.timers]
     .sort((a, b) => (a.node < b.node ? -1 : a.node > b.node ? 1 : a.due - b.due || a.seq - b.seq))
-    .map((t) => [t.node, t.name, t.data, t.due - w.clock]);
-  return stable({ nodes, msgs, timers, wl: w.workload, h: w.history.map((e) => [e.client, e.kind, e.cmd, e.value]), f: w.faults, r: w.rng, e: w.error });
+    .map((t) => `${t.node}/${t.name}/${cached(t, () => stable(t.data))}/${t.due - w.clock}`)
+    .join("|");
+  const history = w.history.map((e) => cached(e, () => stable([e.client, e.kind, e.cmd, e.value]))).join("|");
+  return `${nodes}#${msgs}#${timers}#${history}#${stable(w.workload)}#${w.faults.drops},${w.faults.dups},${w.faults.crashes}#${w.rng}#${w.error ?? ""}`;
 }
 
 /** Human-readable description of a step, for traces. */

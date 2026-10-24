@@ -1,5 +1,5 @@
 import type { ProtocolSpec, Step, World } from "./types";
-import { canonical, describeStep, Runtime } from "./world";
+import { canonical, describeStep, nodeKey, Runtime } from "./world";
 
 export interface Failure {
   name: string;
@@ -120,6 +120,19 @@ export function simulate(rt: Runtime, opts: SimulateOptions): SimulateResult {
 /* Model checking: breadth-first search over every ordering            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Cheap test for a step that changed nothing: same node state, nothing new
+ * sent, scheduled or recorded. Most re-deliveries in a search are like this.
+ */
+function unchanged(before: World, after: World, step: Step): boolean {
+  if (step.type !== "deliver") return false;
+  if (after.msgs.length !== before.msgs.length || after.timers.length !== before.timers.length) return false;
+  if (after.history.length !== before.history.length || after.error !== before.error || after.rng !== before.rng) return false;
+  const m = before.msgs.find((x) => x.seq === step.seq);
+  if (!m) return false;
+  return nodeKey(after.nodes[m.to]) === nodeKey(before.nodes[m.to]);
+}
+
 /** 53-bit hash of a string: compact keys for the visited set. */
 function hash(s: string): number {
   let h1 = 0xdeadbeef;
@@ -194,6 +207,7 @@ export function modelCheck(rt: Runtime, opts: CheckOptions = {}): CheckResult {
     for (const { w, key } of frontier) {
       for (const step of rt.enabled(w)) {
         const child = rt.apply(w, step);
+        if (unchanged(w, child, step)) continue; // e.g. a message delivered again, to no effect
         const ck = hash(canonical(child));
         if (parent.has(ck)) continue;
         parent.set(ck, { from: key, step });

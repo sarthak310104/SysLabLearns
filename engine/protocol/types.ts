@@ -136,6 +136,11 @@ export interface CheckerBudget {
   maxStates: number;
   /** Crashes the search may inject. Loss and duplication are always possible. */
   crashes: number;
+  /**
+   * Whether timers can fire during a search. Retry timers make the space
+   * unbounded; safety bugs usually show up without them.
+   */
+  timers?: boolean;
 }
 
 export interface ProtocolSpec {
