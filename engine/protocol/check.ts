@@ -64,7 +64,7 @@ export function simulate(rt: Runtime, opts: SimulateOptions): SimulateResult {
       // Crashes and restarts happen between events.
       const crashable = spec.crashable ?? [];
       if (crashable.length && w.faults.crashes < spec.budget.crashes && roll() < opts.crashChance) {
-        const up = crashable.filter((id) => !w.nodes[id].crashed);
+        const up = crashable.filter((id) => !w.nodes[id].crashed && (spec.canCrash?.(w, id) ?? true));
         if (up.length) {
           const id = up[Math.floor(roll() * up.length)];
           take({ type: "crash", node: id });

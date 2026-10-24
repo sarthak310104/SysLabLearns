@@ -254,7 +254,7 @@ export class Runtime {
     for (const m of w.msgs) steps.push({ type: "deliver", seq: m.seq });
     if (budget.timers !== false) for (const t of this.firstTimers(w)) steps.push({ type: "timer", seq: t.seq });
     if (w.faults.crashes < budget.crashes) {
-      for (const id of this.spec.crashable ?? []) if (!w.nodes[id].crashed) steps.push({ type: "crash", node: id });
+      for (const id of this.spec.crashable ?? []) if (!w.nodes[id].crashed && (this.spec.canCrash?.(w, id) ?? true)) steps.push({ type: "crash", node: id });
     }
     if (this.spec.restart) for (const id of this.spec.crashable ?? []) if (w.nodes[id].crashed) steps.push({ type: "restart", node: id });
     return steps;

@@ -140,3 +140,129 @@ export const B4_IGNORES_ACCEPTED = B4_SOLUTION.replace("const v = best ? best.va
 
 /** Picks the right value, but counts a repeated "accepted" message twice. */
 export const B4_COUNTS_DUPLICATES = B4_SOLUTION.replace(`if (msg.type === "accepted" && !s.accepted.includes(from)) {`, `if (msg.type === "accepted") {`);
+
+export const B3_SOLUTION = `
+export const server = {
+  init(ctx) {
+    ctx.setTimer("ping", 10);
+    return {
+      view: { num: 0, primary: null, backup: null },
+      readyView: 0,
+      data: {},
+      last: {},
+      synced: false,
+      syncedView: 0,
+      syncedFrom: null,
+      syncing: false,
+      pending: null,
+    };
+  },
+
+  onTimer(s, t, ctx) {
+    ctx.send("vs", { type: "ping", viewNum: s.readyView });
+    if (s.syncing) sendSync(s, ctx);
+    else if (s.pending) forward(s, ctx);
+    ctx.setTimer("ping", 10);
+  },
+
+  onMessage(s, from, msg, ctx) {
+    if (msg.type === "view" && msg.view.num > s.view.num) {
+      const firstView = s.view.num === 0 && msg.view.num === 1;
+      s.view = msg.view;
+      if (s.view.primary === ctx.self) {
+        if (firstView) s.synced = true;
+        if (!s.synced) return;
+        if (s.view.backup) { s.syncing = true; sendSync(s, ctx); }
+        else { s.syncing = false; s.readyView = s.view.num; finishPending(s, ctx); }
+      } else {
+        s.syncing = false;
+        s.pending = null;
+        s.readyView = s.view.num;
+      }
+      return;
+    }
+
+    if (msg.type === "sync") {
+      if (msg.view > s.syncedView) {
+        s.data = msg.data;
+        s.last = msg.last;
+        s.synced = true;
+        s.syncedView = msg.view;
+        s.syncedFrom = from;
+      }
+      if (msg.view === s.syncedView) ctx.send(from, { type: "syncOk", view: msg.view });
+      return;
+    }
+
+    if (msg.type === "syncOk") {
+      if (s.syncing && msg.view === s.view.num && from === s.view.backup) {
+        s.syncing = false;
+        s.readyView = s.view.num;
+        if (s.pending) forward(s, ctx);
+      }
+      return;
+    }
+
+    if (msg.type === "forward") {
+      if (msg.view !== s.syncedView || from !== s.syncedFrom) return;
+      const result = apply(s, msg.client, msg.seq, msg.cmd);
+      ctx.send(from, { type: "forwardOk", view: msg.view, client: msg.client, seq: msg.seq, result });
+      return;
+    }
+
+    if (msg.type === "forwardOk") {
+      const p = s.pending;
+      if (!p || msg.view !== s.view.num || p.client !== msg.client || p.seq !== msg.seq) return;
+      finishPending(s, ctx);
+      return;
+    }
+
+    if (msg.type === "request") {
+      if (s.view.primary !== ctx.self || !s.synced) {
+        ctx.send(from, { type: "reply", seq: msg.seq, error: "not primary" });
+        return;
+      }
+      const prev = s.last[msg.client];
+      if (prev && prev.seq === msg.seq) { ctx.send(from, { type: "reply", seq: msg.seq, result: prev.result }); return; }
+      if (prev && prev.seq > msg.seq) return;
+      if (s.syncing || s.readyView !== s.view.num || s.pending) return; // busy: the client will retry
+      s.pending = { client: msg.client, seq: msg.seq, cmd: msg.cmd };
+      if (s.view.backup) forward(s, ctx);
+      else finishPending(s, ctx);
+    }
+  },
+};
+
+function apply(s, client, seq, cmd) {
+  const prev = s.last[client];
+  if (prev && prev.seq >= seq) return prev.result;
+  s.data[cmd.key] = (s.data[cmd.key] ?? "") + cmd.value;
+  s.last[client] = { seq, result: s.data[cmd.key] };
+  return s.data[cmd.key];
+}
+
+function sendSync(s, ctx) {
+  ctx.send(s.view.backup, { type: "sync", view: s.view.num, data: s.data, last: s.last });
+}
+
+function forward(s, ctx) {
+  const p = s.pending;
+  ctx.send(s.view.backup, { type: "forward", view: s.view.num, client: p.client, seq: p.seq, cmd: p.cmd });
+}
+
+function finishPending(s, ctx) {
+  const p = s.pending;
+  if (!p) return;
+  s.pending = null;
+  const result = apply(s, p.client, p.seq, p.cmd);
+  ctx.send(p.client, { type: "reply", seq: p.seq, result });
+}
+`;
+
+/** Forwards and dedups, but a new backup starts empty: no state transfer. */
+export const B3_NO_SYNC = B3_SOLUTION.replace(
+  `if (s.view.backup) { s.syncing = true; sendSync(s, ctx); }`,
+  `if (s.view.backup) { ctx.send(s.view.backup, { type: "sync", view: s.view.num, data: {}, last: {} }); s.syncing = true; }`,
+).replace(`function sendSync(s, ctx) {
+  ctx.send(s.view.backup, { type: "sync", view: s.view.num, data: s.data, last: s.last });`, `function sendSync(s, ctx) {
+  ctx.send(s.view.backup, { type: "sync", view: s.view.num, data: {}, last: {} });`);

@@ -157,6 +157,8 @@ export interface ProtocolSpec {
   /** Nodes that may crash, and whether they come back with fresh state. */
   crashable?: NodeId[];
   restart?: boolean;
+  /** Extra rule for when a node may crash (for example: only while a backup can take over). */
+  canCrash?(w: World, node: NodeId): boolean;
   budget: CheckerBudget;
   /** When the run has done its job. Defaults to: every client finished its workload. */
   done?(w: World): boolean;
