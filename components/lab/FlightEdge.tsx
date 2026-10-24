@@ -4,6 +4,7 @@ import { BaseEdge, getBezierPath, type EdgeProps } from "@xyflow/react";
 import { useEffect, useRef } from "react";
 import { flightBus } from "@/lib/flightBus";
 import type { Flight } from "@/engine/model/types";
+import { useSnapshot } from "./LabContext";
 
 const DURATION_MS = 750;
 const MAX_DOTS = 24;
@@ -21,7 +22,9 @@ interface Dot {
  */
 export function FlightEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected, markerEnd } = props;
-  const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+  const snap = useSnapshot();
+  const isCut = snap?.cutEdges.includes(id) ?? false;
   const pathRef = useRef<SVGPathElement>(null);
   const groupRef = useRef<SVGGElement>(null);
   const dots = useRef<Dot[]>([]);
@@ -79,10 +82,23 @@ export function FlightEdge(props: EdgeProps) {
       <BaseEdge
         path={path}
         markerEnd={markerEnd}
-        style={{ stroke: selected ? "var(--accent)" : "var(--line)", strokeWidth: selected ? 2.5 : 2 }}
+        interactionWidth={18}
+        style={{
+          stroke: isCut ? "var(--crit)" : selected ? "var(--accent)" : "var(--line)",
+          strokeWidth: selected ? 2.5 : 2,
+          strokeDasharray: isCut ? "6 6" : undefined,
+        }}
       />
       <path ref={pathRef} d={path} fill="none" stroke="none" />
       <g ref={groupRef} pointerEvents="none" />
+      {isCut && (
+        <g transform={`translate(${labelX}, ${labelY})`} pointerEvents="none">
+          <rect x={-18} y={-10} width={36} height={20} rx={4} fill="var(--panel)" stroke="var(--crit)" />
+          <text textAnchor="middle" dy="4" fontSize="11" fill="var(--crit)">
+            Cut
+          </text>
+        </g>
+      )}
     </>
   );
 }

@@ -50,5 +50,21 @@ export function Glyph({ kind, size = 18 }: { kind: ComponentKind; size?: number 
           <path d="M4 5v10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5M4 10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5" />
         </svg>
       );
+    case "replica":
+      return (
+        <svg {...common}>
+          <ellipse cx="10" cy="5" rx="6" ry="2.5" strokeDasharray="2 2" />
+          <path d="M4 5v10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5" strokeDasharray="2 2" />
+          <path d="M8 11l2 2 2-2" />
+        </svg>
+      );
+    case "queue":
+      return (
+        <svg {...common}>
+          <rect x="2.5" y="6" width="4" height="8" rx="1" />
+          <rect x="8" y="6" width="4" height="8" rx="1" />
+          <rect x="13.5" y="6" width="4" height="8" rx="1" />
+        </svg>
+      );
   }
 }

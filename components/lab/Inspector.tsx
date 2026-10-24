@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { AnyConfig, ComponentKind, FaultAction, Incident, NodeStats, Snapshot } from "@/engine/model/types";
 import type { HistoryPoint } from "@/lib/useSimulation";
 import { CONTROLS, type Control } from "./controls";
@@ -13,13 +14,7 @@ function ControlRow({ c, value, onChange }: { c: Control; value: unknown; onChan
   if (c.type === "toggle") {
     return (
       <label className="flex items-start gap-2.5 py-1.5 cursor-pointer">
-        <input
-          id={id}
-          type="checkbox"
-          className="mt-1 accent-[var(--accent)]"
-          checked={Boolean(value)}
-          onChange={(e) => onChange(e.target.checked)}
-        />
+        <input id={id} type="checkbox" className="mt-1 accent-[var(--accent)]" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
         <span>
           <span className="block">{c.label}</span>
           {c.help && <span className="block text-[12px] text-muted">{c.help}</span>}
@@ -33,12 +28,7 @@ function ControlRow({ c, value, onChange }: { c: Control; value: unknown; onChan
         <label htmlFor={id} className="block mb-1">
           {c.label}
         </label>
-        <select
-          id={id}
-          value={String(value)}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-panel-2 border border-line rounded-md px-2 py-1.5"
-        >
+        <select id={id} value={String(value)} onChange={(e) => onChange(e.target.value)} className="w-full bg-panel-2 border border-line rounded-md px-2 py-1.5">
           {c.options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
@@ -50,24 +40,19 @@ function ControlRow({ c, value, onChange }: { c: Control; value: unknown; onChan
     );
   }
   const scale = c.scale ?? 1;
-  const num = Number(value);
-  const shown = c.unit === "ms" && num >= 1000 ? `${(num / 1000).toFixed(1)} s` : `${Math.round(num * scale)}${c.unit ? (c.unit === "%" ? "%" : ` ${c.unit}`) : ""}`;
+  const num = Number(value ?? 0);
+  let shown: string;
+  if (num === 0 && c.zeroLabel) shown = c.zeroLabel;
+  else if (c.unit === "ms" && num >= 1000) shown = `${(num / 1000).toFixed(1)} s`;
+  else if (c.unit === "%") shown = `${Math.round(num * scale)}%`;
+  else shown = `${Number.isInteger(num * scale) ? num * scale : (num * scale).toFixed(1)}${c.unit ? ` ${c.unit}` : ""}`;
   return (
     <div className="py-1.5">
       <div className="flex justify-between mb-1">
         <label htmlFor={id}>{c.label}</label>
         <span className="num text-muted">{shown}</span>
       </div>
-      <input
-        id={id}
-        type="range"
-        min={c.min}
-        max={c.max}
-        step={c.step}
-        value={num}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[var(--accent)]"
-      />
+      <input id={id} type="range" min={c.min} max={c.max} step={c.step} value={num} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-[var(--accent)]" />
       {c.help && <p className="text-[12px] text-muted mt-0.5">{c.help}</p>}
     </div>
   );
@@ -108,9 +93,8 @@ function NodeCharts({ history }: { history: HistoryPoint[] }) {
   );
 }
 
-function IncidentFeed({ incidents, labels }: { incidents: Incident[]; labels: Record<string, string> }) {
-  if (!incidents.length)
-    return <p className="text-muted text-[13px]">Nothing has gone wrong yet. Add load or break something to see what happens.</p>;
+function IncidentFeed({ incidents }: { incidents: Incident[] }) {
+  if (!incidents.length) return <p className="text-muted text-[13px]">Nothing has gone wrong yet. Add load or break something to see what happens.</p>;
   return (
     <ol className="space-y-2">
       {incidents.slice(0, 12).map((i) => (
@@ -128,20 +112,6 @@ function IncidentFeed({ incidents, labels }: { incidents: Incident[]; labels: Re
       ))}
     </ol>
   );
-
-}
-
-export interface InspectorProps {
-  selected: LabFlowNode | null;
-  snapshot: Snapshot | null;
-  history: Map<string, HistoryPoint[]>;
-  incidents: Incident[];
-  labels: Record<string, string>;
-  canDelete: boolean;
-  onConfig: (id: string, config: AnyConfig) => void;
-  onRename: (id: string, label: string) => void;
-  onFault: (a: FaultAction) => void;
-  onDelete: (id: string) => void;
 }
 
 function SystemSummary({ snapshot }: { snapshot: Snapshot | null }) {
@@ -160,27 +130,29 @@ function SystemSummary({ snapshot }: { snapshot: Snapshot | null }) {
   );
 }
 
+const BTN = "px-3 py-1.5 rounded-md border text-[13px]";
+
 function FaultButtons({ s, id, kind, onFault }: { s: NodeStats | undefined; id: string; kind: ComponentKind; onFault: (a: FaultAction) => void }) {
   if (kind === "client" || !s) return null;
-  const btn = "px-3 py-1.5 rounded-md border text-[13px]";
+  const canSlow = kind === "server" || kind === "database" || kind === "replica";
   return (
     <div className="flex flex-wrap gap-2">
       {s.down ? (
-        <button className={`${btn} border-line hover:bg-panel-2`} onClick={() => onFault({ type: "recover", nodeId: id })}>
+        <button className={`${BTN} border-line hover:bg-panel-2`} onClick={() => onFault({ type: "recover", nodeId: id })}>
           Bring back up
         </button>
       ) : (
-        <button className={`${btn} border-crit text-crit hover:bg-panel-2`} onClick={() => onFault({ type: "crash", nodeId: id })}>
+        <button className={`${BTN} border-crit text-crit hover:bg-panel-2`} onClick={() => onFault({ type: "crash", nodeId: id })}>
           Crash it
         </button>
       )}
-      {(kind === "server" || kind === "database") &&
+      {canSlow &&
         (s.slowFactor > 1 ? (
-          <button className={`${btn} border-line hover:bg-panel-2`} onClick={() => onFault({ type: "slow", nodeId: id, factor: 1 })}>
+          <button className={`${BTN} border-line hover:bg-panel-2`} onClick={() => onFault({ type: "slow", nodeId: id, factor: 1 })}>
             Restore speed
           </button>
         ) : (
-          <button className={`${btn} border-warn text-warn hover:bg-panel-2`} onClick={() => onFault({ type: "slow", nodeId: id, factor: 4 })}>
+          <button className={`${BTN} border-warn text-warn hover:bg-panel-2`} onClick={() => onFault({ type: "slow", nodeId: id, factor: 4 })}>
             Make it 4x slower
           </button>
         ))}
@@ -188,9 +160,71 @@ function FaultButtons({ s, id, kind, onFault }: { s: NodeStats | undefined; id: 
   );
 }
 
+export interface SelectedLink {
+  id: string;
+  from: string;
+  to: string;
+  /** This link plus the link going the other way, if there is one: a partition cuts both. */
+  pairIds: string[];
+  replication: boolean;
+}
+
+export interface InspectorProps {
+  selected: LabFlowNode | null;
+  selectedLink: SelectedLink | null;
+  snapshot: Snapshot | null;
+  history: Map<string, HistoryPoint[]>;
+  incidents: Incident[];
+  canDelete: boolean;
+  onConfig: (id: string, config: AnyConfig) => void;
+  onRename: (id: string, label: string) => void;
+  onFault: (a: FaultAction) => void;
+  onDelete: (id: string) => void;
+  onDeleteLink: (id: string) => void;
+}
+
+function LinkPanel({ link, p }: { link: SelectedLink; p: InspectorProps }) {
+  const isCut = p.snapshot?.cutEdges.includes(link.id) ?? false;
+  const section = "px-4 py-3 border-b border-line";
+  return (
+    <div className="text-[14px]">
+      <div className={section}>
+        <h2 className="font-medium">Link</h2>
+        <p className="text-muted text-[13px] mt-0.5">
+          {link.from} to {link.to}
+          {link.replication ? ": carries replication, not requests" : ""}
+        </p>
+      </div>
+      <div className={`${section} space-y-3`}>
+        <p className="text-[13px] text-muted">
+          A network partition drops everything on this link{link.pairIds.length > 1 ? " in both directions" : ""}. Nothing tells the sender: requests just never get an answer.
+        </p>
+        {isCut ? (
+          <button className={`${BTN} border-line hover:bg-panel-2`} onClick={() => p.onFault({ type: "heal", edgeIds: link.pairIds })}>
+            Reconnect
+          </button>
+        ) : (
+          <button className={`${BTN} border-crit text-crit hover:bg-panel-2`} onClick={() => p.onFault({ type: "cut", edgeIds: link.pairIds })}>
+            Cut the network here
+          </button>
+        )}
+        {p.canDelete && (
+          <div>
+            <button className="text-[13px] text-muted hover:text-crit" onClick={() => p.onDeleteLink(link.id)}>
+              Remove this link
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Inspector(p: InspectorProps) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const sel = p.selected;
   const section = "px-4 py-3 border-b border-line";
+  if (p.selectedLink) return <LinkPanel link={p.selectedLink} p={p} />;
   if (!sel) {
     return (
       <div className="text-[14px]">
@@ -200,15 +234,18 @@ export function Inspector(p: InspectorProps) {
         </div>
         <div className={section}>
           <h2 className="font-medium mb-2.5">What happened</h2>
-          <IncidentFeed incidents={p.incidents} labels={p.labels} />
+          <IncidentFeed incidents={p.incidents} />
         </div>
-        <p className="px-4 py-3 text-[13px] text-muted">Select a component to tune it or break it.</p>
+        <p className="px-4 py-3 text-[13px] text-muted">Select a component to tune it or break it, or a link to cut it.</p>
       </div>
     );
   }
   const { kind, label, config } = sel.data;
   const s = p.snapshot?.nodes[sel.id];
   const cfg = config as unknown as Record<string, unknown>;
+  const basic = CONTROLS[kind].filter((c) => !c.advanced);
+  const advanced = CONTROLS[kind].filter((c) => c.advanced);
+  const row = (c: Control) => <ControlRow key={c.key} c={c} value={cfg[c.key]} onChange={(v) => p.onConfig(sel.id, { ...cfg, [c.key]: v } as unknown as AnyConfig)} />;
   return (
     <div className="text-[14px]">
       <div className={`${section} flex items-center gap-2`}>
@@ -225,7 +262,7 @@ export function Inspector(p: InspectorProps) {
       {s && (
         <div className={section}>
           <div className="grid grid-cols-3 gap-3 mb-3">
-            <Stat label="Served" value={fmtRate(s.okPerSec)} />
+            <Stat label={kind === "queue" ? "Accepted" : "Served"} value={fmtRate(s.okPerSec)} />
             <Stat label="Failed" value={fmtRate(s.errorsPerSec)} tone={s.errorsPerSec > 0 ? "text-crit" : undefined} />
             <Stat label="p99" value={fmtMs(s.p99)} />
           </div>
@@ -234,9 +271,15 @@ export function Inspector(p: InspectorProps) {
       )}
       <div className={section}>
         <h2 className="font-medium mb-1">Settings</h2>
-        {CONTROLS[kind].map((c) => (
-          <ControlRow key={c.key} c={c} value={cfg[c.key]} onChange={(v) => p.onConfig(sel.id, { ...cfg, [c.key]: v } as unknown as AnyConfig)} />
-        ))}
+        {basic.map(row)}
+        {advanced.length > 0 && (
+          <>
+            <button className="text-[13px] text-accent mt-2" aria-expanded={showAdvanced} onClick={() => setShowAdvanced((v) => !v)}>
+              {showAdvanced ? "Hide timeouts and limits" : "Timeouts, retries and limits"}
+            </button>
+            {showAdvanced && <div className="mt-1">{advanced.map(row)}</div>}
+          </>
+        )}
       </div>
       {(kind !== "client" || p.canDelete) && (
         <div className={`${section} space-y-3`}>

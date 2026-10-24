@@ -16,12 +16,12 @@ import {
   type IsValidConnection,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { canConnect, defaultConfig, KIND_LABEL } from "@/engine/model/defaults";
+import { canConnect, defaultConfig, KIND_LABEL, withDefaults } from "@/engine/model/defaults";
 import type { AnyConfig, ComponentKind, Graph } from "@/engine/model/types";
 import type { Goal } from "@/lib/goals";
 import { useSimulation } from "@/lib/useSimulation";
 import { FlightEdge } from "./FlightEdge";
-import { Inspector } from "./Inspector";
+import { Inspector, type SelectedLink } from "./Inspector";
 import { LabNode, type LabFlowNode } from "./LabNode";
 import { SnapshotContext } from "./LabContext";
 import { DRAG_MIME, Palette } from "./Palette";
@@ -54,7 +54,7 @@ function toFlow(graph: Graph): { nodes: LabFlowNode[]; edges: Edge[] } {
       id: n.id,
       type: "lab",
       position: n.position,
-      data: { kind: n.kind, label: n.label, config: n.config },
+      data: { kind: n.kind, label: n.label, config: withDefaults(n.kind, n.config) },
     })),
     edges: graph.edges.map((e) => ({ ...EDGE_DEFAULTS, id: e.id, source: e.source, target: e.target })),
   };
@@ -75,6 +75,7 @@ function LabInner(props: LabProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<LabFlowNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const rf = useReactFlow<LabFlowNode, Edge>();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const editable = props.palette.length > 0;
@@ -193,7 +194,29 @@ function LabInner(props: LabProps) {
   );
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
-  const labels = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n.data.label])), [nodes]);
+  const selectedLink: SelectedLink | null = useMemo(() => {
+    const e = edges.find((x) => x.id === selectedEdgeId);
+    if (!e) return null;
+    const label = (id: string) => nodes.find((n) => n.id === id)?.data.label ?? id;
+    const twin = edges.find((x) => x.source === e.target && x.target === e.source);
+    const fromKind = kindOf(e.source);
+    const toKind = kindOf(e.target);
+    return {
+      id: e.id,
+      from: label(e.source),
+      to: label(e.target),
+      pairIds: twin ? [e.id, twin.id] : [e.id],
+      replication: fromKind === "database" && (toKind === "replica" || toKind === "database"),
+    };
+  }, [edges, nodes, selectedEdgeId, kindOf]);
+
+  const removeLink = useCallback(
+    (id: string) => {
+      setEdges((es) => es.filter((e) => e.id !== id));
+      setSelectedEdgeId(null);
+    },
+    [setEdges],
+  );
   const wide = props.layout === "wide";
 
   const canvas = (
@@ -209,8 +232,18 @@ function LabInner(props: LabProps) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         isValidConnection={isValidConnection}
-        onNodeClick={(_, n) => setSelectedId(n.id)}
-        onPaneClick={() => setSelectedId(null)}
+        onNodeClick={(_, n) => {
+          setSelectedId(n.id);
+          setSelectedEdgeId(null);
+        }}
+        onEdgeClick={(_, e) => {
+          setSelectedEdgeId(e.id);
+          setSelectedId(null);
+        }}
+        onPaneClick={() => {
+          setSelectedId(null);
+          setSelectedEdgeId(null);
+        }}
         onNodesDelete={() => setSelectedId(null)}
         deleteKeyCode={["Backspace", "Delete"]}
         fitView
@@ -227,15 +260,16 @@ function LabInner(props: LabProps) {
   const inspector = (
     <Inspector
       selected={selected}
+      selectedLink={selectedLink}
       snapshot={sim.snapshot}
       history={sim.history}
       incidents={sim.incidents}
-      labels={labels}
       canDelete={editable}
       onConfig={(id, config) => updateData(id, { config })}
       onRename={(id, label) => updateData(id, { label })}
       onFault={sim.fault}
       onDelete={removeNode}
+      onDeleteLink={removeLink}
     />
   );
 

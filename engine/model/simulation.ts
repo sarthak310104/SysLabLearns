@@ -1,7 +1,9 @@
 import { EventQueue } from "../core/eventQueue";
 import { Rng } from "../core/rng";
 import { Window } from "../core/window";
+import { withDefaults } from "./defaults";
 import type {
+  AnyConfig,
   CacheConfig,
   ClientConfig,
   ComponentKind,
@@ -14,24 +16,31 @@ import type {
   LoadBalancerConfig,
   NodeStats,
   NodeStatus,
+  QueueConfig,
+  ReplicaConfig,
   ServerConfig,
   Snapshot,
-  AnyConfig,
 } from "./types";
 
 /* ------------------------------------------------------------------ */
 /* Requests and frames                                                 */
 /* ------------------------------------------------------------------ */
 
+type Op = "read" | "write";
+
 interface Req {
   id: number;
   key: number;
+  op: Op;
 }
 
 /**
  * One request's visit to one node. Frames link to their parent (the node that
  * sent the request here), so a response always finds its way back upstream.
- * A dead frame belongs to a node that crashed: later events for it are ignored.
+ *
+ * - `pending` is the child call this frame is waiting on. A response from any
+ *   other child (one that already timed out, say) is ignored.
+ * - A dead frame belongs to a node that crashed: later events for it are ignored.
  */
 interface Frame {
   req: Req;
@@ -40,15 +49,37 @@ interface Frame {
   edgeId: string | null;
   parent: Frame | null;
   dead: boolean;
+  pending: Frame | null;
+  attempts: number;
+}
+
+/** A replicated write travelling between databases, or its acknowledgement. */
+interface ReplMsg {
+  from: string;
+  to: string;
+  edgeId: string;
+  key: number;
+  committedAt: number;
+  /** For synchronous replication: the write waiting on this message. */
+  syncFor: Frame | null;
 }
 
 type Ev =
   | { k: "gen"; node: string; send: boolean }
   | { k: "arrive"; frame: Frame }
   | { k: "done"; frame: Frame }
-  | { k: "resp"; frame: Frame; ok: boolean };
+  | { k: "resp"; frame: Frame; ok: boolean; child: Frame }
+  | { k: "timeout"; frame: Frame; child: Frame }
+  | { k: "retry"; frame: Frame }
+  | { k: "repl"; msg: ReplMsg }
+  | { k: "replAck"; msg: ReplMsg }
+  | { k: "apply"; node: string }
+  | { k: "tick"; node: string }
+  | { k: "syncTimeout"; frame: Frame };
 
 const STATUS_RANK: Record<NodeStatus, number> = { idle: 0, ok: 1, warning: 2, critical: 3, down: 4 };
+const SYNC_TIMEOUT_MS = 500;
+const BREAKER_OPEN_MS = 3000;
 
 /* ------------------------------------------------------------------ */
 /* Base runtime                                                        */
@@ -74,6 +105,8 @@ abstract class Runtime {
   pendingStatus: NodeStatus = "idle";
   pendingCount = 0;
   wasBottleneck = false;
+  /** Named conditions already reported as incidents, so each is reported once per occurrence. */
+  flags = new Set<string>();
 
   constructor(
     public id: string,
@@ -87,8 +120,10 @@ abstract class Runtime {
   done(_f: Frame): void {}
   resp(_f: Frame, _ok: boolean): void {}
   /** Frames this node is holding right now (queued, working, or waiting on downstream). */
-  abstract activeFrames(): Frame[];
-  abstract clearActive(): void;
+  activeFrames(): Frame[] {
+    return [];
+  }
+  clearActive(): void {}
 
   get workers(): number {
     return 0;
@@ -102,7 +137,6 @@ abstract class Runtime {
   get queueLimit(): number {
     return 0;
   }
-
   /** Workers doing their own work, not waiting on a downstream answer. */
   get ownBusyCount(): number {
     return this.busyCount;
@@ -140,11 +174,9 @@ abstract class Runtime {
     return { total: clamp(this.utilEma), own: clamp(this.ownEma) };
   }
 
-  nextEdge(): GraphEdge | undefined {
-    if (!this.out.length) return undefined;
-    const e = this.out[this.rr % this.out.length];
-    this.rr++;
-    return e;
+  nextEdge(edges: GraphEdge[] = this.out): GraphEdge | undefined {
+    if (!edges.length) return undefined;
+    return edges[this.rr++ % edges.length];
   }
 
   crash(): void {
@@ -164,14 +196,17 @@ abstract class Runtime {
   }
 
   onConfigChange(): void {}
+
+  /** Extra fields for this node's snapshot. */
+  extraStats(_s: NodeStats): void {}
 }
 
 /* ------------------------------------------------------------------ */
-/* Clients: generate traffic                                           */
+/* Clients: generate traffic, time out and retry                       */
 /* ------------------------------------------------------------------ */
 
 class ClientRuntime extends Runtime {
-  sent = new Window(1000);
+  attemptsWin = new Window(1000);
 
   get cfg(): ClientConfig {
     return this.config as ClientConfig;
@@ -188,12 +223,13 @@ class ClientRuntime extends Runtime {
   }
 
   pickKey(): number {
-    const { keySpace, hotShare } = this.cfg;
-    const space = Math.max(1, Math.floor(keySpace));
-    const hot = Math.max(1, Math.floor(space * 0.01));
+    const { keySpace, hotShare, topKeyShare } = this.cfg;
     const rng = this.sim.rng;
-    if (space <= hot || rng.next() < hotShare) return rng.int(hot);
-    return hot + rng.int(space - hot);
+    if (topKeyShare > 0 && rng.next() < topKeyShare) return 0;
+    const space = Math.max(2, Math.floor(keySpace));
+    const hot = Math.max(1, Math.floor(space * 0.01));
+    if (space - 1 <= hot || rng.next() < hotShare) return 1 + rng.int(hot);
+    return 1 + hot + rng.int(space - 1 - hot);
   }
 
   /**
@@ -204,10 +240,10 @@ class ClientRuntime extends Runtime {
   gen(send: boolean): void {
     const sim = this.sim;
     if (send && !this.down && this.out.length) {
-      const req: Req = { id: sim.nextReqId++, key: this.pickKey() };
-      const origin: Frame = { req, node: this.id, arrived: sim.now, edgeId: null, parent: null, dead: false };
-      this.sent.add(sim.now, 0, true);
-      sim.forward(origin, this.nextEdge()!);
+      const op: Op = sim.rng.next() < this.cfg.writeShare ? "write" : "read";
+      const req: Req = { id: sim.nextReqId++, key: this.pickKey(), op };
+      const origin: Frame = { req, node: this.id, arrived: sim.now, edgeId: null, parent: null, dead: false, pending: null, attempts: 1 };
+      this.attempt(origin);
     }
     const rate = this.rateAt(sim.now);
     const delay = rate > 0 ? sim.rng.exp(1000 / rate) : Infinity;
@@ -215,23 +251,56 @@ class ClientRuntime extends Runtime {
     else sim.schedule(sim.now + 100, { k: "gen", node: this.id, send: false });
   }
 
+  attempt(f: Frame): void {
+    const edge = this.nextEdge();
+    if (!edge) return;
+    this.attemptsWin.add(this.sim.now, 0, true);
+    this.sim.forward(f, edge, this.cfg.timeoutMs);
+  }
+
+  retry(f: Frame): void {
+    if (this.down) {
+      this.window.add(this.sim.now, this.sim.now - f.arrived, false);
+      return;
+    }
+    this.attempt(f);
+  }
+
   arrive(f: Frame): void {
     this.sim.reply(f, false);
   }
 
   resp(f: Frame, ok: boolean): void {
-    this.window.add(this.sim.now, this.sim.now - f.arrived, ok);
+    const now = this.sim.now;
+    if (ok) {
+      this.window.add(now, now - f.arrived, true);
+      return;
+    }
+    if (f.attempts <= Math.floor(this.cfg.retries)) {
+      // Exponential backoff with full jitter: wait a random time up to 50ms * 2^n.
+      const delay = this.cfg.backoff === "exponential" ? this.sim.rng.next() * 50 * 2 ** (f.attempts - 1) : 0;
+      f.attempts++;
+      this.sim.schedule(now + delay, { k: "retry", frame: f });
+      return;
+    }
+    this.window.add(now, now - f.arrived, false);
   }
 
-  activeFrames(): Frame[] {
-    return [];
+  extraStats(s: NodeStats): void {
+    s.sendingRps = this.rateAt(this.sim.now);
+    s.attemptsPerSec = this.attemptsWin.stats(this.sim.now).okPerSec;
   }
-  clearActive(): void {}
 }
 
 /* ------------------------------------------------------------------ */
-/* Servers and databases: worker pools with a bounded queue            */
+/* Worker pools: servers, databases and read replicas                  */
 /* ------------------------------------------------------------------ */
+
+interface BreakerState {
+  results: boolean[];
+  openUntil: number;
+  halfOpen: boolean;
+}
 
 class PoolRuntime extends Runtime {
   busy = new Set<Frame>();
@@ -239,12 +308,27 @@ class PoolRuntime extends Runtime {
   /** Busy workers that are waiting on a downstream answer. */
   waitingDownstream = new Set<Frame>();
 
+  // server
+  callEdge = new Map<Frame, string>();
+  breakers = new Map<string, BreakerState>();
+
+  // database and replica: key -> time of the latest write this node knows about
+  versions = new Map<number, number>();
+  // database with peers
+  unsynced = new Map<number, number>();
+  syncWaiting = new Map<Frame, number>();
+  lostUpdates = 0;
+  // replica
+  primaries: PoolRuntime[] = [];
+  applyQueue: { key: number; committedAt: number }[] = [];
+  applying = false;
+  stale = new Window(1000);
+
   get ownBusyCount(): number {
     return this.busy.size - this.waitingDownstream.size;
   }
-
-  get cfg(): ServerConfig | DatabaseConfig {
-    return this.config as ServerConfig;
+  get cfg(): ServerConfig & DatabaseConfig & ReplicaConfig {
+    return this.config as ServerConfig & DatabaseConfig & ReplicaConfig;
   }
   get workers(): number {
     return Math.max(1, Math.floor(this.cfg.workers));
@@ -261,6 +345,7 @@ class PoolRuntime extends Runtime {
 
   arrive(f: Frame): void {
     if (this.down) return this.sim.reply(f, false);
+    if (this.kind === "replica" && f.req.op === "write") return this.sim.reply(f, false); // replicas are read-only
     if (this.busy.size < this.workers) this.start(f);
     else if (this.queue.length < this.queueLimit) this.queue.push(f);
     else this.sim.reply(f, false);
@@ -275,24 +360,184 @@ class PoolRuntime extends Runtime {
 
   done(f: Frame): void {
     if (f.dead || !this.busy.has(f)) return;
-    // A server with a downstream keeps its worker while it waits for the answer.
-    const edge = this.kind === "server" ? this.nextEdge() : undefined;
-    if (edge) {
-      this.markBusy();
-      this.waitingDownstream.add(f);
-      this.sim.forward(f, edge);
-    } else this.finish(f, true);
+    if (this.kind === "server") return this.callDownstream(f);
+    if (this.kind === "database" && f.req.op === "write") return this.commit(f);
+    if (this.kind === "replica") {
+      const primaryV = Math.max(0, ...this.primaries.map((p) => p.versions.get(f.req.key) ?? 0));
+      const mine = this.versions.get(f.req.key) ?? 0;
+      this.stale.add(this.sim.now, 0, mine >= primaryV);
+    }
+    this.finish(f, true);
+  }
+
+  /* ---------- servers: routing, timeouts, circuit breaker ---------- */
+
+  /** Writes never go to read replicas; reads prefer replicas when there are any. */
+  route(op: Op): GraphEdge | undefined {
+    let cands = this.out;
+    const kindOf = (e: GraphEdge) => this.sim.runtime(e.target)?.kind;
+    if (op === "write") cands = cands.filter((e) => kindOf(e) !== "replica");
+    else {
+      const reps = cands.filter((e) => kindOf(e) === "replica");
+      if (reps.length) cands = reps;
+    }
+    return this.nextEdge(cands);
+  }
+
+  callDownstream(f: Frame): void {
+    if (!this.out.length) return this.finish(f, true);
+    const edge = this.route(f.req.op);
+    if (!edge) return this.finish(f, false);
+    if (this.cfg.breaker && this.breakerOpen(edge.id)) return this.finish(f, false); // fail fast
+    this.markBusy();
+    this.waitingDownstream.add(f);
+    this.callEdge.set(f, edge.id);
+    this.sim.forward(f, edge, this.cfg.timeoutMs);
+  }
+
+  breaker(edgeId: string): BreakerState {
+    let b = this.breakers.get(edgeId);
+    if (!b) this.breakers.set(edgeId, (b = { results: [], openUntil: 0, halfOpen: false }));
+    return b;
+  }
+
+  breakerOpen(edgeId: string): boolean {
+    const b = this.breaker(edgeId);
+    if (this.sim.now < b.openUntil) return true;
+    if (b.openUntil > 0 && !b.halfOpen) b.halfOpen = true; // let trial calls through
+    return false;
+  }
+
+  recordCall(edgeId: string, ok: boolean): void {
+    if (!this.cfg.breaker) return;
+    const b = this.breaker(edgeId);
+    if (b.halfOpen) {
+      b.halfOpen = false;
+      b.results = [];
+      b.openUntil = ok ? 0 : this.sim.now + BREAKER_OPEN_MS;
+      return;
+    }
+    b.results.push(ok);
+    if (b.results.length > 20) b.results.shift();
+    const fails = b.results.filter((r) => !r).length;
+    if (b.results.length >= 10 && fails / b.results.length >= 0.5) {
+      b.openUntil = this.sim.now + BREAKER_OPEN_MS;
+      b.results = [];
+    }
   }
 
   resp(f: Frame, ok: boolean): void {
     if (f.dead || !this.busy.has(f)) return;
+    const edgeId = this.callEdge.get(f);
+    if (edgeId) {
+      this.callEdge.delete(f);
+      this.recordCall(edgeId, ok);
+    }
     this.finish(f, ok);
   }
+
+  /* ---------- databases: commits and replication ---------- */
+
+  peerEdges(): GraphEdge[] {
+    return this.out.filter((e) => this.sim.runtime(e.target)?.kind === "database");
+  }
+  replicaEdges(): GraphEdge[] {
+    return this.out.filter((e) => this.sim.runtime(e.target)?.kind === "replica");
+  }
+
+  commit(f: Frame): void {
+    const peers = this.peerEdges();
+    const now = this.sim.now;
+    if (this.cfg.mode === "sync" && peers.length) {
+      // Synchronous: the write only counts once every peer has it.
+      this.markBusy();
+      this.waitingDownstream.add(f);
+      this.syncWaiting.set(f, peers.length);
+      for (const e of peers) this.sim.replicate({ from: this.id, to: e.target, edgeId: e.id, key: f.req.key, committedAt: now, syncFor: f });
+      this.sim.schedule(now + SYNC_TIMEOUT_MS, { k: "syncTimeout", frame: f });
+      return;
+    }
+    this.applyLocal(f.req.key, now, peers.length > 0);
+    for (const e of peers) this.sim.replicate({ from: this.id, to: e.target, edgeId: e.id, key: f.req.key, committedAt: now, syncFor: null });
+    this.finish(f, true);
+  }
+
+  applyLocal(key: number, at: number, trackUnsynced: boolean): void {
+    this.versions.set(key, Math.max(this.versions.get(key) ?? 0, at));
+    if (trackUnsynced) this.unsynced.set(key, at);
+    for (const e of this.replicaEdges()) this.sim.replicate({ from: this.id, to: e.target, edgeId: e.id, key, committedAt: at, syncFor: null });
+  }
+
+  /** A replicated write arrives from a primary or peer. */
+  onRepl(m: ReplMsg): void {
+    if (this.down) return;
+    if (this.kind === "replica") {
+      this.applyQueue.push({ key: m.key, committedAt: m.committedAt });
+      this.startApply();
+      return;
+    }
+    // Peer database. A local write to the same key that the peer hasn't seen yet
+    // means two regions changed the same thing: one of them will be lost.
+    if (this.unsynced.has(m.key) && this.id > m.from) this.lostUpdates++;
+    this.versions.set(m.key, Math.max(this.versions.get(m.key) ?? 0, m.committedAt));
+    for (const e of this.replicaEdges()) this.sim.replicate({ from: this.id, to: e.target, edgeId: e.id, key: m.key, committedAt: m.committedAt, syncFor: null });
+    this.sim.replicateAck({ ...m, from: this.id, to: m.from });
+  }
+
+  onReplAck(m: ReplMsg): void {
+    if (m.syncFor) {
+      const f = m.syncFor;
+      const left = this.syncWaiting.get(f);
+      if (left === undefined || f.dead) return;
+      if (left > 1) {
+        this.syncWaiting.set(f, left - 1);
+        return;
+      }
+      this.syncWaiting.delete(f);
+      this.applyLocal(f.req.key, m.committedAt, false);
+      this.finish(f, true);
+      return;
+    }
+    const t = this.unsynced.get(m.key);
+    if (t !== undefined && t <= m.committedAt) this.unsynced.delete(m.key);
+  }
+
+  onSyncTimeout(f: Frame): void {
+    if (!this.syncWaiting.has(f) || f.dead) return;
+    this.syncWaiting.delete(f);
+    this.finish(f, false);
+  }
+
+  /* ---------- replicas: a single applier that slows down under read load ---------- */
+
+  startApply(): void {
+    if (this.applying || this.down || !this.applyQueue.length) return;
+    this.applying = true;
+    const load = this.busy.size / this.workers;
+    const ms = this.sim.rng.erlang2(Math.max(0.1, this.cfg.applyMs) * this.slowFactor * (1 + 2 * load));
+    this.sim.schedule(this.sim.now + ms, { k: "apply", node: this.id });
+  }
+
+  onApply(): void {
+    this.applying = false;
+    if (this.down) return;
+    const item = this.applyQueue.shift();
+    if (item) this.versions.set(item.key, Math.max(this.versions.get(item.key) ?? 0, item.committedAt));
+    this.startApply();
+  }
+
+  lagMs(): number {
+    return this.applyQueue.length ? this.sim.now - this.applyQueue[0].committedAt : 0;
+  }
+
+  /* ---------- common ---------- */
 
   finish(f: Frame, ok: boolean): void {
     this.markBusy();
     this.busy.delete(f);
     this.waitingDownstream.delete(f);
+    this.callEdge.delete(f);
+    this.syncWaiting.delete(f);
     this.sim.reply(f, ok);
     this.pull();
   }
@@ -302,6 +547,11 @@ class PoolRuntime extends Runtime {
       const next = this.queue.shift()!;
       if (!next.dead) this.start(next);
     }
+  }
+
+  recover(): void {
+    super.recover();
+    this.startApply();
   }
 
   onConfigChange(): void {
@@ -315,7 +565,23 @@ class PoolRuntime extends Runtime {
   clearActive(): void {
     this.busy.clear();
     this.waitingDownstream.clear();
+    this.callEdge.clear();
+    this.syncWaiting.clear();
     this.queue = [];
+  }
+
+  extraStats(s: NodeStats): void {
+    if (this.kind === "replica") {
+      s.lagMs = this.lagMs();
+      s.staleRate = this.stale.stats(this.sim.now).errorRate;
+    }
+    if (this.kind === "database" && this.peerEdges().length) {
+      s.unreplicated = this.unsynced.size;
+      s.lostUpdates = this.lostUpdates;
+    }
+    if (this.kind === "server" && this.cfg.breaker) {
+      s.breakerOpen = [...this.breakers.values()].some((b) => this.sim.now < b.openUntil);
+    }
   }
 }
 
@@ -323,43 +589,76 @@ class PoolRuntime extends Runtime {
 /* Load balancer                                                       */
 /* ------------------------------------------------------------------ */
 
+/** Spreads keys evenly across shards: the same key always lands on the same one. */
+function hashKey(key: number): number {
+  let h = Math.imul(key ^ 0x9e3779b9, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
 class LoadBalancerRuntime extends Runtime {
   waiting = new Map<Frame, string>();
   outstanding = new Map<string, number>();
+  tokens = 0;
+  lastRefill = 0;
+  limited = new Window(1000);
 
   get cfg(): LoadBalancerConfig {
     return this.config as LoadBalancerConfig;
   }
 
+  /** Token bucket: refills at the limit per second, with a small burst allowance. */
+  allow(): boolean {
+    const limit = this.cfg.rateLimit;
+    if (!limit) return true;
+    const now = this.sim.now;
+    const burst = Math.max(1, limit / 10);
+    this.tokens = Math.min(burst, this.tokens + ((now - this.lastRefill) / 1000) * limit);
+    this.lastRefill = now;
+    if (this.tokens >= 1) {
+      this.tokens -= 1;
+      return true;
+    }
+    return false;
+  }
+
   arrive(f: Frame): void {
     if (this.down) return this.sim.reply(f, false);
+    if (!this.allow()) {
+      this.limited.add(this.sim.now, 0, true);
+      return this.sim.reply(f, false);
+    }
     this.sim.schedule(this.sim.now + 0.3, { k: "done", frame: f });
   }
 
   done(f: Frame): void {
     if (f.dead || this.down) return;
-    let candidates = this.out;
-    if (this.cfg.healthChecks) candidates = candidates.filter((e) => !this.sim.runtime(e.target)?.down);
-    if (!candidates.length) return this.sim.reply(f, false);
-
-    let edge: GraphEdge;
-    if (this.cfg.strategy === "random") {
-      edge = candidates[this.sim.rng.int(candidates.length)];
-    } else if (this.cfg.strategy === "leastConnections") {
-      edge = candidates[0];
-      let best = Infinity;
-      const start = this.rr++ % candidates.length;
-      for (let i = 0; i < candidates.length; i++) {
-        const e = candidates[(start + i) % candidates.length];
-        const n = this.outstanding.get(e.id) ?? 0;
-        if (n < best) {
-          best = n;
-          edge = e;
-        }
-      }
+    let edge: GraphEdge | undefined;
+    if (this.cfg.strategy === "keyHash") {
+      // Sharding: the key decides the target, healthy or not. Moving a key would mean moving its data.
+      edge = this.out.length ? this.out[hashKey(f.req.key) % this.out.length] : undefined;
+      if (edge && this.cfg.healthChecks && this.sim.runtime(edge.target)?.down) edge = undefined;
     } else {
-      edge = candidates[this.rr++ % candidates.length];
+      let cands = this.out;
+      if (this.cfg.healthChecks) cands = cands.filter((e) => !this.sim.runtime(e.target)?.down);
+      if (cands.length) {
+        if (this.cfg.strategy === "random") edge = cands[this.sim.rng.int(cands.length)];
+        else if (this.cfg.strategy === "leastConnections") {
+          let best = Infinity;
+          const start = this.rr++ % cands.length;
+          for (let i = 0; i < cands.length; i++) {
+            const e = cands[(start + i) % cands.length];
+            const n = this.outstanding.get(e.id) ?? 0;
+            if (n < best) {
+              best = n;
+              edge = e;
+            }
+          }
+        } else edge = cands[this.rr++ % cands.length];
+      }
     }
+    if (!edge) return this.sim.reply(f, false);
     this.outstanding.set(edge.id, (this.outstanding.get(edge.id) ?? 0) + 1);
     this.waiting.set(f, edge.id);
     this.sim.forward(f, edge);
@@ -381,6 +680,10 @@ class LoadBalancerRuntime extends Runtime {
     this.waiting.clear();
     this.outstanding.clear();
   }
+
+  extraStats(s: NodeStats): void {
+    if (this.cfg.rateLimit) s.limitedPerSec = this.limited.stats(this.sim.now).okPerSec;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -400,16 +703,21 @@ class CacheRuntime extends Runtime {
     if (this.down) return this.sim.reply(f, false);
     const now = this.sim.now;
     const key = f.req.key;
-    const exp = this.entries.get(key);
-    if (exp !== undefined && exp > now) {
+    if (f.req.op === "write") {
+      // Writes go through to storage and invalidate the cached copy.
       this.entries.delete(key);
-      this.entries.set(key, exp);
-      this.lookups.add(now, 0, true);
-      this.sim.schedule(now + 1, { k: "done", frame: f });
-      return;
+    } else {
+      const exp = this.entries.get(key);
+      if (exp !== undefined && exp > now) {
+        this.entries.delete(key);
+        this.entries.set(key, exp);
+        this.lookups.add(now, 0, true);
+        this.sim.schedule(now + 1, { k: "done", frame: f });
+        return;
+      }
+      if (exp !== undefined) this.entries.delete(key);
+      this.lookups.add(now, 0, false);
     }
-    if (exp !== undefined) this.entries.delete(key);
-    this.lookups.add(now, 0, false);
     const edge = this.nextEdge();
     if (!edge) return this.sim.reply(f, false);
     this.waiting.add(f);
@@ -424,12 +732,16 @@ class CacheRuntime extends Runtime {
   resp(f: Frame, ok: boolean): void {
     if (f.dead || !this.waiting.has(f)) return;
     this.waiting.delete(f);
-    if (ok) {
+    if (ok && f.req.op === "read") {
       this.entries.set(f.req.key, this.sim.now + Math.max(1, this.cfg.ttlMs));
-      const cap = Math.max(1, Math.floor(this.cfg.capacity));
-      while (this.entries.size > cap) this.entries.delete(this.entries.keys().next().value!);
+      this.trim();
     }
     this.sim.reply(f, ok);
+  }
+
+  trim(): void {
+    const cap = Math.max(1, Math.floor(this.cfg.capacity));
+    while (this.entries.size > cap) this.entries.delete(this.entries.keys().next().value!);
   }
 
   crash(): void {
@@ -438,8 +750,7 @@ class CacheRuntime extends Runtime {
   }
 
   onConfigChange(): void {
-    const cap = Math.max(1, Math.floor(this.cfg.capacity));
-    while (this.entries.size > cap) this.entries.delete(this.entries.keys().next().value!);
+    this.trim();
   }
 
   activeFrames(): Frame[] {
@@ -447,6 +758,127 @@ class CacheRuntime extends Runtime {
   }
   clearActive(): void {
     this.waiting.clear();
+  }
+
+  extraStats(s: NodeStats): void {
+    const l = this.lookups.stats(this.sim.now);
+    const total = l.okPerSec + l.errorsPerSec;
+    s.hitRatio = total ? l.okPerSec / total : 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Queue: accept now, deliver to consumers as they have room           */
+/* ------------------------------------------------------------------ */
+
+interface Message {
+  req: Req;
+  enqueuedAt: number;
+  deliveries: number;
+}
+
+class QueueRuntime extends Runtime {
+  backlog: Message[] = [];
+  inflight = new Map<Frame, { msg: Message; edgeId: string }>();
+  inflightPerEdge = new Map<string, number>();
+  processed = new Window(1000);
+  deadLetters = 0;
+  tickScheduled = false;
+
+  get cfg(): QueueConfig {
+    return this.config as QueueConfig;
+  }
+  get queueLength(): number {
+    return this.backlog.length;
+  }
+  get queueLimit(): number {
+    return Math.max(1, Math.floor(this.cfg.capacity));
+  }
+
+  arrive(f: Frame): void {
+    if (this.down || this.backlog.length >= this.queueLimit) return this.sim.reply(f, false);
+    this.backlog.push({ req: f.req, enqueuedAt: this.sim.now, deliveries: 0 });
+    // The producer gets its answer straight away: "accepted", not "done".
+    this.sim.schedule(this.sim.now + 0.5, { k: "done", frame: f });
+    this.dispatch();
+  }
+
+  done(f: Frame): void {
+    if (f.dead) return;
+    this.sim.reply(f, true);
+  }
+
+  dispatch(): void {
+    if (this.down) return;
+    let progress = true;
+    while (this.backlog.length && progress) {
+      progress = false;
+      for (let i = 0; i < this.out.length && this.backlog.length; i++) {
+        const edge = this.out[this.rr++ % this.out.length];
+        const consumer = this.sim.runtime(edge.target);
+        if (!consumer || consumer.down) continue;
+        const inflight = this.inflightPerEdge.get(edge.id) ?? 0;
+        if (inflight >= consumer.workers) continue;
+        const msg = this.backlog.shift()!;
+        msg.deliveries++;
+        const mf: Frame = { req: msg.req, node: this.id, arrived: this.sim.now, edgeId: null, parent: null, dead: false, pending: null, attempts: 0 };
+        this.inflight.set(mf, { msg, edgeId: edge.id });
+        this.inflightPerEdge.set(edge.id, inflight + 1);
+        this.sim.forward(mf, edge);
+        progress = true;
+      }
+    }
+    if (this.backlog.length && !this.tickScheduled) {
+      this.tickScheduled = true;
+      this.sim.schedule(this.sim.now + 20, { k: "tick", node: this.id });
+    }
+  }
+
+  tick(): void {
+    this.tickScheduled = false;
+    this.dispatch();
+  }
+
+  resp(mf: Frame, ok: boolean): void {
+    const entry = this.inflight.get(mf);
+    if (!entry) return;
+    this.inflight.delete(mf);
+    this.inflightPerEdge.set(entry.edgeId, Math.max(0, (this.inflightPerEdge.get(entry.edgeId) ?? 1) - 1));
+    const { msg } = entry;
+    if (ok) this.processed.add(this.sim.now, this.sim.now - msg.enqueuedAt, true);
+    else if (msg.deliveries >= Math.max(1, this.cfg.maxRetries)) {
+      this.deadLetters++;
+      this.processed.add(this.sim.now, this.sim.now - msg.enqueuedAt, false);
+    } else this.backlog.push(msg); // try again later
+    this.dispatch();
+  }
+
+  crash(): void {
+    if (this.down) return;
+    this.down = true;
+    // Messages are durable: anything out for delivery goes back on the queue.
+    for (const [mf, { msg }] of this.inflight) {
+      mf.dead = true;
+      this.backlog.unshift(msg);
+    }
+    this.inflight.clear();
+    this.inflightPerEdge.clear();
+  }
+
+  recover(): void {
+    super.recover();
+    this.dispatch();
+  }
+
+  onConfigChange(): void {
+    this.dispatch();
+  }
+
+  extraStats(s: NodeStats): void {
+    const p = this.processed.stats(this.sim.now);
+    s.processedPerSec = p.okPerSec;
+    s.oldestAgeMs = this.backlog.length ? this.sim.now - Math.min(...this.backlog.slice(0, 50).map((m) => m.enqueuedAt)) : 0;
+    s.deadLetters = this.deadLetters;
   }
 }
 
@@ -463,6 +895,9 @@ export class Simulation {
 
   private queue = new EventQueue<Ev>();
   private runtimes = new Map<string, Runtime>();
+  private edges = new Map<string, GraphEdge>();
+  private cut = new Set<string>();
+  private buffered = new Map<string, Ev[]>();
   private flights: Flight[] = [];
   private flightCounts = new Map<string, number>();
   private incidents: Incident[] = [];
@@ -471,7 +906,7 @@ export class Simulation {
   constructor(graph: Graph, seed = 42) {
     this.rng = new Rng(seed);
     for (const n of graph.nodes) {
-      const args = [n.id, n.kind, n.label, { ...n.config }, this] as const;
+      const args = [n.id, n.kind, n.label, withDefaults(n.kind, n.config), this] as const;
       const rt =
         n.kind === "client"
           ? new ClientRuntime(...args)
@@ -479,12 +914,20 @@ export class Simulation {
             ? new LoadBalancerRuntime(...args)
             : n.kind === "cache"
               ? new CacheRuntime(...args)
-              : new PoolRuntime(...args);
+              : n.kind === "queue"
+                ? new QueueRuntime(...args)
+                : new PoolRuntime(...args);
       this.runtimes.set(n.id, rt);
     }
     for (const e of graph.edges) {
       const from = this.runtimes.get(e.source);
-      if (from && this.runtimes.has(e.target)) from.out.push(e);
+      const to = this.runtimes.get(e.target);
+      if (!from || !to) continue;
+      this.edges.set(e.id, e);
+      from.out.push(e);
+      if (to instanceof PoolRuntime && to.kind === "replica" && from instanceof PoolRuntime && from.kind === "database") {
+        to.primaries.push(from);
+      }
     }
     for (const rt of this.runtimes.values()) {
       if (rt instanceof ClientRuntime) this.queue.push(this.rng.next() * 5, { k: "gen", node: rt.id, send: false });
@@ -499,8 +942,11 @@ export class Simulation {
     this.queue.push(time, ev);
   }
 
-  private hop(): number {
-    return 1 + this.rng.next();
+  /** Network delay for one hop. Links between two databases are cross-region. */
+  private hop(edgeId: string): number {
+    const e = this.edges.get(edgeId);
+    const crossRegion = e && this.runtimes.get(e.source)?.kind === "database" && this.runtimes.get(e.target)?.kind === "database";
+    return crossRegion ? 40 + this.rng.next() * 4 : 1 + this.rng.next();
   }
 
   private recordFlight(edgeId: string, dir: "fwd" | "back", ok: boolean): void {
@@ -511,17 +957,16 @@ export class Simulation {
     this.flights.push({ edgeId, dir, ok });
   }
 
-  /** Send a request from a node to the next node along an edge. */
-  forward(from: Frame, edge: GraphEdge): void {
-    const child: Frame = {
-      req: from.req,
-      node: edge.target,
-      arrived: 0,
-      edgeId: edge.id,
-      parent: from,
-      dead: false,
-    };
-    const at = this.now + this.hop();
+  /** Send a request along an edge. Over a cut link it is simply lost. */
+  forward(from: Frame, edge: GraphEdge, timeoutMs = 0): void {
+    const child: Frame = { req: from.req, node: edge.target, arrived: 0, edgeId: edge.id, parent: from, dead: false, pending: null, attempts: 0 };
+    from.pending = child;
+    if (timeoutMs > 0) this.queue.push(this.now + timeoutMs, { k: "timeout", frame: from, child });
+    if (this.cut.has(edge.id)) {
+      this.recordFlight(edge.id, "fwd", false);
+      return;
+    }
+    const at = this.now + this.hop(edge.id);
     child.arrived = at;
     this.recordFlight(edge.id, "fwd", true);
     this.queue.push(at, { k: "arrive", frame: child });
@@ -533,8 +978,36 @@ export class Simulation {
     if (rt && f.parent) rt.window.add(this.now, this.now - f.arrived, ok);
     const parent = f.parent;
     if (!parent || parent.dead || !f.edgeId) return;
+    if (this.cut.has(f.edgeId)) {
+      this.recordFlight(f.edgeId, "back", false);
+      return;
+    }
     this.recordFlight(f.edgeId, "back", ok);
-    this.queue.push(this.now + this.hop(), { k: "resp", frame: parent, ok });
+    this.queue.push(this.now + this.hop(f.edgeId), { k: "resp", frame: parent, ok, child: f });
+  }
+
+  /**
+   * Send replication traffic. Over a cut link, asynchronous replication waits
+   * in a buffer and catches up when the link heals; synchronous messages are lost.
+   */
+  replicate(msg: ReplMsg): void {
+    this.sendRepl({ k: "repl", msg });
+  }
+  replicateAck(msg: ReplMsg): void {
+    this.sendRepl({ k: "replAck", msg });
+  }
+  private sendRepl(ev: { k: "repl" | "replAck"; msg: ReplMsg }): void {
+    const { edgeId } = ev.msg;
+    if (this.cut.has(edgeId)) {
+      if (!ev.msg.syncFor) {
+        let buf = this.buffered.get(edgeId);
+        if (!buf) this.buffered.set(edgeId, (buf = []));
+        buf.push(ev);
+      }
+      return;
+    }
+    if (ev.k === "repl") this.recordFlight(edgeId, "fwd", true);
+    this.queue.push(this.now + this.hop(edgeId), ev);
   }
 
   runUntil(t: number): void {
@@ -547,27 +1020,87 @@ export class Simulation {
   }
 
   private dispatch(ev: Ev): void {
-    if (ev.k === "gen") {
-      const rt = this.runtimes.get(ev.node);
-      if (rt instanceof ClientRuntime) rt.gen(ev.send);
-      return;
+    switch (ev.k) {
+      case "gen": {
+        const rt = this.runtimes.get(ev.node);
+        if (rt instanceof ClientRuntime) rt.gen(ev.send);
+        return;
+      }
+      case "retry": {
+        const rt = this.runtimes.get(ev.frame.node);
+        if (rt instanceof ClientRuntime) rt.retry(ev.frame);
+        return;
+      }
+      case "resp":
+      case "timeout": {
+        const fr = ev.frame;
+        if (fr.pending !== ev.child) return; // a late answer to a call we already gave up on
+        fr.pending = null;
+        this.runtimes.get(fr.node)?.resp(fr, ev.k === "resp" ? ev.ok : false);
+        return;
+      }
+      case "repl":
+      case "replAck": {
+        const rt = this.runtimes.get(ev.msg.to);
+        if (!(rt instanceof PoolRuntime)) return;
+        if (ev.k === "repl") rt.onRepl(ev.msg);
+        else rt.onReplAck(ev.msg);
+        return;
+      }
+      case "apply": {
+        const rt = this.runtimes.get(ev.node);
+        if (rt instanceof PoolRuntime) rt.onApply();
+        return;
+      }
+      case "tick": {
+        const rt = this.runtimes.get(ev.node);
+        if (rt instanceof QueueRuntime) rt.tick();
+        return;
+      }
+      case "syncTimeout": {
+        const rt = this.runtimes.get(ev.frame.node);
+        if (rt instanceof PoolRuntime) rt.onSyncTimeout(ev.frame);
+        return;
+      }
+      case "arrive":
+      case "done": {
+        const rt = this.runtimes.get(ev.frame.node);
+        if (!rt) return;
+        if (ev.k === "arrive") rt.arrive(ev.frame);
+        else rt.done(ev.frame);
+        return;
+      }
     }
-    const rt = this.runtimes.get(ev.frame.node);
-    if (!rt) return;
-    if (ev.k === "arrive") rt.arrive(ev.frame);
-    else if (ev.k === "done") rt.done(ev.frame);
-    else rt.resp(ev.frame, ev.ok);
   }
 
   updateConfig(nodeId: string, config: AnyConfig): void {
     const rt = this.runtimes.get(nodeId);
     if (!rt) return;
     rt.markBusy();
-    rt.config = { ...config };
+    rt.config = withDefaults(rt.kind, config);
     rt.onConfigChange();
   }
 
   applyFault(action: FaultAction): void {
+    if (action.type === "cut" || action.type === "heal") {
+      for (const id of action.edgeIds) {
+        const e = this.edges.get(id);
+        if (!e) continue;
+        if (action.type === "cut") this.cut.add(id);
+        else if (this.cut.delete(id)) {
+          for (const ev of this.buffered.get(id) ?? []) this.queue.push(this.now + this.hop(id), ev);
+          this.buffered.delete(id);
+        }
+      }
+      const e = this.edges.get(action.edgeIds[0]);
+      if (e) {
+        const a = this.runtimes.get(e.source)?.label ?? e.source;
+        const b = this.runtimes.get(e.target)?.label ?? e.target;
+        if (action.type === "cut") this.pushIncident(e.source, "critical", `The network between ${a} and ${b} is cut.`);
+        else this.pushIncident(e.source, "info", `The network between ${a} and ${b} is back.`);
+      }
+      return;
+    }
     const rt = this.runtimes.get(action.nodeId);
     if (!rt) return;
     if (action.type === "crash") rt.crash();
@@ -606,20 +1139,12 @@ export class Simulation {
         workUtilization,
         bottleneck: false,
       };
-      if (rt instanceof CacheRuntime) {
-        const l = rt.lookups.stats(this.now);
-        const total = l.okPerSec + l.errorsPerSec;
-        stats.hitRatio = total ? l.okPerSec / total : 0;
-      }
-      if (rt instanceof ClientRuntime) {
-        stats.sendingRps = rt.rateAt(this.now);
-        rt.sent.prune(this.now);
-      }
+      rt.extraStats(stats);
       stats.status = this.statusOf(stats, queueFrac);
 
       // The bottleneck is the node saturated by its own work. A server stuck
       // waiting on a slow database is a victim, not the cause.
-      if ((rt.kind === "server" || rt.kind === "database") && !rt.down) {
+      if ((rt.kind === "server" || rt.kind === "database" || rt.kind === "replica") && !rt.down) {
         const score = workUtilization + (workUtilization > 0.8 ? queueFrac : 0);
         if (workUtilization > 0.9 && score > bottleneckScore) {
           bottleneckScore = score;
@@ -637,6 +1162,7 @@ export class Simulation {
       nodes,
       flights: this.flights,
       incidents: this.incidents,
+      cutEdges: [...this.cut],
     };
     this.flights = [];
     this.flightCounts.clear();
@@ -647,9 +1173,14 @@ export class Simulation {
   private statusOf(s: NodeStats, queueFrac: number): NodeStatus {
     if (s.down) return "down";
     const active = s.okPerSec + s.errorsPerSec > 0 || s.busy > 0;
-    if (s.kind === "server" || s.kind === "database") {
+    if (s.kind === "queue") {
+      if (queueFrac > 0.8 || s.errorRate > 0.05) return "critical";
+      if (queueFrac > 0.2 || (s.oldestAgeMs ?? 0) > 5000 || (s.deadLetters ?? 0) > 0) return "warning";
+      return active || s.queue > 0 ? "ok" : "idle";
+    }
+    if (s.kind === "server" || s.kind === "database" || s.kind === "replica") {
       if (s.errorRate > 0.05 || queueFrac > 0.8) return "critical";
-      if (s.utilization > 0.85 || queueFrac > 0.2 || s.errorRate > 0.005) return "warning";
+      if (s.utilization > 0.85 || queueFrac > 0.2 || s.errorRate > 0.005 || (s.lagMs ?? 0) > 1000 || s.breakerOpen) return "warning";
       return active ? "ok" : "idle";
     }
     if (s.errorRate > 0.05) return "critical";
@@ -677,7 +1208,24 @@ export class Simulation {
         this.pushIncident(rt.id, "warning", `${rt.label} is the bottleneck: it saturates before anything else.`);
       }
       rt.wasBottleneck = s.bottleneck;
+
+      this.flagIncident(rt, "lag", (s.lagMs ?? 0) > 1000, "warning", () => `${rt.label} is falling behind: its reads are ${(s.lagMs! / 1000).toFixed(1)} s out of date.`);
+      this.flagIncident(rt, "breaker", Boolean(s.breakerOpen), "warning", () => `${rt.label}'s circuit breaker opened: it now fails fast instead of waiting on a broken dependency.`);
+      this.flagIncident(rt, "backlog", (s.oldestAgeMs ?? 0) > 5000, "warning", () => `${rt.label} is backing up: the oldest message has waited ${((s.oldestAgeMs ?? 0) / 1000).toFixed(0)} s.`);
+      const lost = s.lostUpdates ?? 0;
+      const prevLost = (rt as unknown as { reportedLost?: number }).reportedLost ?? 0;
+      if (lost > prevLost && s.unreplicated === 0) {
+        this.pushIncident(rt.id, "critical", `${lost - prevLost} writes on ${rt.label} conflicted with the other region and one side was overwritten.`);
+        (rt as unknown as { reportedLost?: number }).reportedLost = lost;
+      }
     }
+  }
+
+  private flagIncident(rt: Runtime, flag: string, active: boolean, severity: Incident["severity"], text: () => string): void {
+    if (active && !rt.flags.has(flag)) {
+      rt.flags.add(flag);
+      this.pushIncident(rt.id, severity, text());
+    } else if (!active) rt.flags.delete(flag);
   }
 
   private describe(
@@ -693,8 +1241,9 @@ export class Simulation {
       return { severity: "critical", text: `${rt.label} is failing ${pct(s.errorRate)} of requests.` };
     }
     if (s.status === "warning" && STATUS_RANK[before] < STATUS_RANK.warning) {
-      if (s.workers) return { severity: "warning", text: `${rt.label} is running hot: ${pct(s.utilization)} busy.` };
-      return { severity: "warning", text: `${rt.label} is returning some errors.` };
+      if (s.workers && s.utilization > 0.85) return { severity: "warning", text: `${rt.label} is running hot: ${pct(s.utilization)} busy.` };
+      if (s.errorRate > 0.005) return { severity: "warning", text: `${rt.label} is returning some errors.` };
+      return null;
     }
     if ((s.status === "ok" || s.status === "idle") && STATUS_RANK[before] >= STATUS_RANK.critical) {
       return { severity: "info", text: `${rt.label} recovered.` };

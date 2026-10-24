@@ -1,11 +1,23 @@
-import type { ComponentKind, ConfigByKind } from "./types";
+import type { AnyConfig, ComponentKind, ConfigByKind } from "./types";
 
 export const DEFAULT_CONFIG: ConfigByKind = {
-  client: { rps: 50, pattern: "steady", keySpace: 10000, hotShare: 0.5 },
-  loadBalancer: { strategy: "roundRobin", healthChecks: false },
-  server: { workers: 4, serviceMs: 40, queueLimit: 100 },
+  client: {
+    rps: 50,
+    pattern: "steady",
+    keySpace: 10000,
+    hotShare: 0.5,
+    topKeyShare: 0,
+    writeShare: 0,
+    timeoutMs: 0,
+    retries: 0,
+    backoff: "exponential",
+  },
+  loadBalancer: { strategy: "roundRobin", healthChecks: false, rateLimit: 0 },
+  server: { workers: 4, serviceMs: 40, queueLimit: 100, timeoutMs: 0, breaker: false },
   cache: { capacity: 1000, ttlMs: 30000 },
-  database: { workers: 8, serviceMs: 25, queueLimit: 200 },
+  database: { workers: 8, serviceMs: 25, queueLimit: 200, mode: "async" },
+  replica: { workers: 8, serviceMs: 25, queueLimit: 200, applyMs: 3 },
+  queue: { capacity: 5000, maxRetries: 3 },
 };
 
 export const KIND_LABEL: Record<ComponentKind, string> = {
@@ -14,15 +26,22 @@ export const KIND_LABEL: Record<ComponentKind, string> = {
   server: "Server",
   cache: "Cache",
   database: "Database",
+  replica: "Read replica",
+  queue: "Queue",
 };
 
-/** Which component may send requests to which. */
+/**
+ * Which component may connect to which. Most links carry requests; a link
+ * from a database to a replica or another database carries replication.
+ */
 export const ALLOWED_TARGETS: Record<ComponentKind, ComponentKind[]> = {
   client: ["loadBalancer", "server", "cache"],
-  loadBalancer: ["server"],
-  server: ["cache", "database", "server", "loadBalancer"],
-  cache: ["database", "server"],
-  database: [],
+  loadBalancer: ["server", "database", "replica", "cache"],
+  server: ["cache", "database", "replica", "server", "loadBalancer", "queue"],
+  cache: ["database", "replica", "server", "loadBalancer"],
+  database: ["replica", "database"],
+  replica: [],
+  queue: ["server"],
 };
 
 export function canConnect(from: ComponentKind, to: ComponentKind): boolean {
@@ -31,4 +50,9 @@ export function canConnect(from: ComponentKind, to: ComponentKind): boolean {
 
 export function defaultConfig<K extends ComponentKind>(kind: K): ConfigByKind[K] {
   return { ...DEFAULT_CONFIG[kind] };
+}
+
+/** Fill in fields missing from older saved designs. */
+export function withDefaults(kind: ComponentKind, config: Partial<AnyConfig> | undefined): AnyConfig {
+  return { ...DEFAULT_CONFIG[kind], ...(config ?? {}) } as AnyConfig;
 }

@@ -46,9 +46,12 @@ function Body({ s, kind }: { s: NodeStats | undefined; kind: ComponentKind }) {
 
   if (kind === "client") {
     const success = 1 - s.errorRate;
+    const sending = s.sendingRps ?? 0;
+    const amplification = sending > 0 && s.attemptsPerSec ? s.attemptsPerSec / sending : 1;
     return (
       <>
-        <Metric label="Sending" value={fmtRate(s.sendingRps ?? 0)} />
+        <Metric label="Sending" value={fmtRate(sending)} />
+        {amplification > 1.15 && <Metric label="With retries" value={fmtRate(s.attemptsPerSec ?? 0)} tone={amplification > 1.5 ? "crit" : "warn"} />}
         <Metric label="Succeeding" value={fmtPct(s.okPerSec + s.errorsPerSec ? success : 1)} tone={errTone} />
         <Metric label="Slowest 1%" value={fmtMs(s.p99)} />
         <Bar value={s.okPerSec + s.errorsPerSec ? success : 0} tone={errTone ?? "signal"} />
@@ -60,6 +63,20 @@ function Body({ s, kind }: { s: NodeStats | undefined; kind: ComponentKind }) {
       <>
         <Metric label="Passing" value={fmtRate(s.okPerSec)} />
         <Metric label="Errors" value={fmtRate(s.errorsPerSec)} tone={errTone} />
+        {s.limitedPerSec !== undefined && <Metric label="Rate limited" value={fmtRate(s.limitedPerSec)} tone={s.limitedPerSec > 0 ? "warn" : undefined} />}
+      </>
+    );
+  }
+  if (kind === "queue") {
+    const fill = s.queueLimit ? s.queue / s.queueLimit : 0;
+    const age = s.oldestAgeMs ?? 0;
+    return (
+      <>
+        <Metric label="Waiting" value={`${s.queue}`} tone={fill > 0.8 ? "crit" : s.queue > 0 ? "warn" : undefined} />
+        <Metric label="Oldest" value={fmtMs(age)} tone={age > 5000 ? "crit" : age > 1000 ? "warn" : undefined} />
+        <Metric label="Processed" value={fmtRate(s.processedPerSec ?? 0)} />
+        {(s.deadLetters ?? 0) > 0 && <Metric label="Gave up on" value={`${s.deadLetters}`} tone="crit" />}
+        <Bar value={fill} tone={fill > 0.8 ? "crit" : fill > 0.2 ? "warn" : "signal"} />
       </>
     );
   }
@@ -76,11 +93,17 @@ function Body({ s, kind }: { s: NodeStats | undefined; kind: ComponentKind }) {
   const util = s.utilization;
   const utilTone = util > 0.95 ? "crit" : util > 0.85 ? "warn" : "signal";
   const qTone = s.queueLimit && s.queue >= s.queueLimit * 0.8 ? "crit" : s.queue > 0 ? "warn" : undefined;
+  const lag = s.lagMs ?? 0;
   return (
     <>
       <Metric label="Busy" value={`${s.busy}/${s.workers}`} tone={utilTone === "signal" ? undefined : utilTone} />
       <Metric label="Queue" value={`${s.queue}/${s.queueLimit}`} tone={qTone} />
       <Metric label="Rejecting" value={fmtRate(s.errorsPerSec)} tone={errTone} />
+      {s.lagMs !== undefined && <Metric label="Behind by" value={fmtMs(lag)} tone={lag > 1000 ? "crit" : lag > 200 ? "warn" : undefined} />}
+      {s.staleRate !== undefined && s.staleRate > 0 && <Metric label="Stale reads" value={fmtPct(s.staleRate)} tone="warn" />}
+      {s.unreplicated !== undefined && <Metric label="Not yet synced" value={`${s.unreplicated}`} tone={s.unreplicated > 50 ? "warn" : undefined} />}
+      {(s.lostUpdates ?? 0) > 0 && <Metric label="Lost updates" value={`${s.lostUpdates}`} tone="crit" />}
+      {s.breakerOpen && <Metric label="Breaker" value="Open" tone="warn" />}
       <Bar value={util} tone={utilTone} />
     </>
   );
@@ -91,7 +114,7 @@ function LabNodeImpl({ id, data, selected }: NodeProps<LabFlowNode>) {
   const s = snap?.nodes[id];
   const status = s?.status ?? "idle";
   const hasInput = data.kind !== "client";
-  const hasOutput = data.kind !== "database";
+  const hasOutput = data.kind !== "replica";
 
   return (
     <div
