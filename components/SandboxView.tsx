@@ -65,6 +65,7 @@ export function SandboxView() {
         palette={["client", "loadBalancer", "server", "cache", "database", "replica", "queue"]}
         layout="wide"
         events
+        shareName="My system design"
         onGraphChange={onGraphChange}
       />
     </div>

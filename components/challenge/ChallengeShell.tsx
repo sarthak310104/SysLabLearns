@@ -142,6 +142,7 @@ export function ChallengeShell({ slug }: { slug: string }) {
           {loaded && (
             <Lab
               events
+              shareName={`My design: ${ch.title}`}
               key={labKey}
               graph={ch.graph}
               palette={ch.palette}

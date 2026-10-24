@@ -7,6 +7,7 @@ import { LineChart } from "@/components/explore/Charts";
 import { edgeTypes, nodeTypes, toFlow } from "@/components/lab/Lab";
 import { FlightNsContext, SnapshotContext } from "@/components/lab/LabContext";
 import { EventsMenu } from "@/components/lab/EventsMenu";
+import { ShareDialog } from "@/components/ShareDialog";
 import type { Graph, Snapshot } from "@/engine/model/types";
 import { findings, verdictOf, HEALTH_COLOR } from "@/lib/health";
 import { fmtDollars, monthlyCost } from "@/lib/cost";
@@ -92,6 +93,7 @@ function Run({ a, b }: { a: Choice; b: Choice }) {
   const [findingLimit, setFindingLimit] = useState(false);
   const strikes = useRef({ a: 0, b: 0 });
   const sawRamp = useRef(false);
+  const [share, setShare] = useState<"a" | "b" | null>(null);
   const restoreRef = useRef<Scenario["restore"]>([]);
 
   // Record each design's totals as snapshots arrive.
@@ -213,7 +215,10 @@ function Run({ a, b }: { a: Choice; b: Choice }) {
         <div className="flex items-center gap-2 mb-2">
           <span className="h-3 w-3 rounded-sm" style={{ background: key === "a" ? "var(--series-1)" : "var(--series-2)" }} aria-hidden="true" />
           <h2 className="font-semibold truncate">{c.name}</h2>
-          <span className="ml-auto flex items-center gap-1.5 text-[12px]">
+          <button className="ml-auto text-[12px] text-muted hover:text-text" onClick={() => setShare(key)}>
+            Share
+          </button>
+          <span className="flex items-center gap-1.5 text-[12px]">
             <span className="h-2 w-2 rounded-full" style={{ background: VERDICT_COLOR[v] }} />
             {VERDICT_LABEL[v]}
           </span>
@@ -250,6 +255,7 @@ function Run({ a, b }: { a: Choice; b: Choice }) {
 
   return (
     <div>
+      {share && <ShareDialog name={share === "a" ? a.name : b.name} graph={share === "a" ? a.graph : b.graph} snapshot={share === "a" ? simA.snapshot : simB.snapshot} onClose={() => setShare(null)} />}
       <div className="flex flex-wrap items-center gap-2 mb-4 text-[13px]">
         <button onClick={playing ? pause : play} className={`px-3.5 py-1.5 rounded-md font-medium min-w-[92px] ${playing ? "bg-panel-2" : "bg-accent text-accent-ink neon"}`}>
           {playing ? "Pause" : "Send traffic"}

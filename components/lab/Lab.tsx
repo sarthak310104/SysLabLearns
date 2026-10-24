@@ -22,6 +22,7 @@ import { GoalTracker, type Goal } from "@/lib/goals";
 import { useSimulation } from "@/lib/useSimulation";
 import { FlightEdge } from "./FlightEdge";
 import { HealthPanel } from "./HealthPanel";
+import { ShareDialog } from "@/components/ShareDialog";
 import { EventsMenu, ScenarioBanner } from "./EventsMenu";
 import { scenariosFor, type Scenario } from "@/lib/scenarios";
 import { Inspector, type SelectedLink } from "./Inspector";
@@ -53,6 +54,8 @@ export interface LabProps {
   seed?: number;
   /** Show the Events menu (traffic spikes, crashes, outages). */
   events?: boolean;
+  /** Show a Share button; this is the picture's default title. */
+  shareName?: string;
 }
 
 export function toFlow(graph: Graph): { nodes: LabFlowNode[]; edges: Edge[] } {
@@ -204,6 +207,7 @@ function LabInner(props: LabProps) {
     },
     [setEdges],
   );
+  const [sharing, setSharing] = useState(false);
   const scenarios = useMemo(() => scenariosFor(graph), [graph]);
   const restoreRef = useRef<Scenario["restore"]>([]);
   const runScenario = useCallback(
@@ -300,7 +304,16 @@ function LabInner(props: LabProps) {
 
   const toolbar = (
     <Toolbar
-      extra={props.events ? <EventsMenu scenarios={scenarios} onRun={runScenario} disabled={!sim.playing} /> : undefined}
+      extra={
+        <>
+          {props.events && <EventsMenu scenarios={scenarios} onRun={runScenario} disabled={!sim.playing} />}
+          {props.shareName && (
+            <button className="px-2.5 py-1.5 rounded-md border border-line hover:border-accent text-[13px]" onClick={() => setSharing(true)}>
+              Share
+            </button>
+          )}
+        </>
+      }
       playing={sim.playing}
       speed={sim.speed}
       time={sim.snapshot?.time ?? 0}
@@ -313,6 +326,7 @@ function LabInner(props: LabProps) {
 
   return (
     <SnapshotContext.Provider value={sim.snapshot}>
+      {sharing && props.shareName && <ShareDialog name={props.shareName} graph={graph} snapshot={sim.snapshot} onClose={() => setSharing(false)} />}
       {wide ? (
         // Three columns on a wide screen; stacked like a lesson lab on narrow ones.
         <div className="flex flex-col lg:flex-row flex-1 min-h-0">
