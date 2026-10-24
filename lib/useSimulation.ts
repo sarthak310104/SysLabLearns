@@ -55,7 +55,8 @@ export function useSimulation(graph: Graph, seed = 42) {
   );
 
   useEffect(() => {
-    const worker = new Worker(new URL("../engine/worker.ts", import.meta.url), { type: "module" });
+    // Bundled by `npm run worker` (esbuild) before dev and build; see package.json.
+    const worker = new Worker("/engine-worker.js", { type: "module" });
     workerRef.current = worker;
     worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
       const { snapshot: snap, playing: isPlaying } = e.data;

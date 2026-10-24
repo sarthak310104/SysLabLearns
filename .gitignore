@@ -7,3 +7,4 @@ next-env.d.ts
 .env*
 .DS_Store
 .vercel
+public/engine-worker.js

@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "worker": "esbuild engine/worker.ts --bundle --format=esm --minify --target=es2022 --outfile=public/engine-worker.js",
+    "predev": "npm run worker",
     "dev": "next dev",
+    "prebuild": "npm run worker",
     "build": "next build",
     "start": "npx serve out",
     "lint": "tsc --noEmit",
@@ -28,6 +31,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^5",
     "vitest": "^5.0.5"
