@@ -15,7 +15,7 @@ export default function Home() {
             ten seconds a spike hits, and you can watch the servers absorb it.
           </p>
           <div className="flex flex-wrap gap-3 mt-7">
-            <Link href="/learn/a1-requests/" className="px-4 py-2.5 rounded-md bg-accent text-accent-ink font-medium">
+            <Link href="/learn/a1-requests/" className="px-4 py-2.5 rounded-md bg-accent text-accent-ink font-medium neon">
               Start the first lesson
             </Link>
             <Link href="/sandbox/" className="px-4 py-2.5 rounded-md border border-line hover:bg-panel-2">

@@ -55,7 +55,7 @@ export function FlightEdge(props: EdgeProps) {
       if (!g || dots.current.length >= MAX_DOTS) return;
       const el = document.createElementNS(SVG_NS, "circle");
       el.setAttribute("r", f.ok ? "3" : "3.5");
-      el.setAttribute("class", "flight-dot");
+      el.setAttribute("class", f.ok ? "flight-dot" : "flight-dot err");
       el.setAttribute("fill", f.ok ? "var(--signal)" : "var(--crit)");
       el.setAttribute("opacity", f.dir === "back" && f.ok ? "0.45" : "0.95");
       g.appendChild(el);

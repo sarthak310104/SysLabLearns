@@ -4,35 +4,44 @@
 /* ------------------------------------------------------------------ */
 /* Tokens: dark by default, light on [data-theme="light"]              */
 /* ------------------------------------------------------------------ */
+/*
+ * Black and crimson neon. Crimson is the brand and every interactive
+ * element; healthy traffic glows pale rose; failures switch to neon orange
+ * so they never get confused with the accent.
+ */
 :root {
-  --bg: #161b26;
-  --panel: #1e2431;
-  --panel-2: #262d3d;
-  --line: #2f384a;
-  --text: #e4e8f0;
-  --muted: #8d97ab;
-  --accent: #7aa2ff;
-  --accent-ink: #0f1830;
-  --signal: #5ad1c4;
-  --warn: #f2b450;
-  --crit: #f2665c;
-  --grid: #273042;
+  --bg: #050507;
+  --panel: #0c0c11;
+  --panel-2: #16161d;
+  --line: #26262f;
+  --text: #f3f2f5;
+  --muted: #8c8a97;
+  --accent: #ff1f4b;
+  --accent-ink: #050507;
+  --signal: #ffd6e0;
+  --warn: #ffd23f;
+  --crit: #ff7a1a;
+  --grid: #1b1b23;
+  --glow: 0 0 10px color-mix(in srgb, var(--accent) 65%, transparent), 0 0 28px color-mix(in srgb, var(--accent) 25%, transparent);
+  --glow-soft: 0 0 14px color-mix(in srgb, var(--accent) 30%, transparent);
   color-scheme: dark;
 }
 
 :root[data-theme="light"] {
-  --bg: #eef1f6;
+  --bg: #f8f6f7;
   --panel: #ffffff;
-  --panel-2: #f3f5f9;
-  --line: #d6dce7;
-  --text: #1b2232;
-  --muted: #5d6779;
-  --accent: #3d6be0;
+  --panel-2: #f4eff1;
+  --line: #e3dade;
+  --text: #17131a;
+  --muted: #6e6670;
+  --accent: #d10f3b;
   --accent-ink: #ffffff;
-  --signal: #14958a;
-  --warn: #b97a0f;
-  --crit: #d23f35;
-  --grid: #d3d9e4;
+  --signal: #7d5563;
+  --warn: #a87400;
+  --crit: #d2550a;
+  --grid: #e6dfe2;
+  --glow: 0 0 0 transparent;
+  --glow-soft: 0 0 0 transparent;
   color-scheme: light;
 }
 
@@ -152,6 +161,34 @@ body {
 }
 .react-flow__node:focus-visible {
   outline: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Neon                                                                */
+/* ------------------------------------------------------------------ */
+.neon {
+  box-shadow: var(--glow);
+}
+.neon-hover:hover {
+  box-shadow: var(--glow-soft);
+}
+.neon-text {
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+:root[data-theme="light"] .neon-text {
+  text-shadow: none;
+}
+.flight-dot {
+  filter: drop-shadow(0 0 3px var(--accent));
+}
+.flight-dot.err {
+  filter: drop-shadow(0 0 4px var(--crit));
+}
+:root[data-theme="light"] .flight-dot {
+  filter: none;
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  filter: drop-shadow(0 0 4px var(--accent));
 }
 
 @media (prefers-reduced-motion: reduce) {

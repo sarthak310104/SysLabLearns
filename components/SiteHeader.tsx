@@ -7,11 +7,11 @@ import { useEffect, useState } from "react";
 function Logo() {
   // Three nodes on a wire: the app in one glyph.
   return (
-    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" style={{ filter: "drop-shadow(0 0 4px var(--accent))" }}>
       <path d="M4 11h14" stroke="var(--line)" strokeWidth="2" />
       <circle cx="4" cy="11" r="3" fill="var(--accent)" />
       <circle cx="11" cy="11" r="3" fill="var(--signal)" />
-      <circle cx="18" cy="11" r="3" fill="var(--warn)" />
+      <circle cx="18" cy="11" r="3" fill="var(--accent)" opacity="0.55" />
     </svg>
   );
 }
@@ -48,7 +48,7 @@ const NAV = [
 export function SiteHeader() {
   const path = usePathname();
   return (
-    <header className="h-12 shrink-0 border-b border-line bg-panel flex items-center gap-6 px-4">
+    <header className="h-12 shrink-0 border-b border-line bg-panel flex items-center gap-6 px-4 shadow-[0_1px_0_color-mix(in_srgb,var(--accent)_35%,transparent)]">
       <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
         <Logo />
         SysLabLearns

@@ -98,7 +98,7 @@ function LabNodeImpl({ id, data, selected }: NodeProps<LabFlowNode>) {
       className={`relative w-44 rounded-lg bg-panel text-[12px] leading-snug shadow-sm ${s?.down ? "opacity-70" : ""}`}
       style={{
         border: `1.5px ${s?.down ? "dashed" : "solid"} ${selected ? "var(--accent)" : BORDER[status]}`,
-        boxShadow: status === "critical" ? "0 0 0 3px color-mix(in srgb, var(--crit) 22%, transparent)" : undefined,
+        boxShadow: selected ? "var(--glow-soft)" : status === "critical" ? "0 0 0 3px color-mix(in srgb, var(--crit) 22%, transparent), 0 0 18px color-mix(in srgb, var(--crit) 30%, transparent)" : undefined,
       }}
     >
       {s?.bottleneck && (

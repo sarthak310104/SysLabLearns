@@ -37,7 +37,7 @@ export function Palette({
           }}
           onClick={() => onAdd(k)}
           title={`Add ${KIND_LABEL[k].toLowerCase()}`}
-          className="flex items-center gap-2.5 text-left rounded-md border border-line bg-panel-2/60 hover:border-accent px-2.5 py-2 cursor-grab active:cursor-grabbing shrink-0"
+          className="flex items-center gap-2.5 text-left rounded-md border border-line bg-panel-2/60 hover:border-accent neon-hover px-2.5 py-2 cursor-grab active:cursor-grabbing shrink-0"
         >
           <span className="text-signal">
             <Glyph kind={k} size={16} />
