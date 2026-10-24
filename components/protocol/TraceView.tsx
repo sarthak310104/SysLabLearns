@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { TraceNote } from "@/engine/protocol/annotate";
 import type { Frame } from "@/engine/protocol/check";
 import type { ProtocolSpec } from "@/engine/protocol/types";
 import { msgLabel, roleColors, stepMessage } from "./util";
@@ -14,13 +15,28 @@ const SHOW_LAST = 250;
  * A failing run as a sequence diagram: one lane per node, one row per step,
  * newest at the bottom. Click a row to see the state it left behind.
  */
-export function TraceView({ spec, frames, onWatch, stuck = false }: { spec: ProtocolSpec; frames: Frame[]; onWatch?: (index: number) => void; stuck?: boolean }) {
+export function TraceView({
+  spec,
+  frames,
+  onWatch,
+  stuck = false,
+  notes = [],
+}: {
+  spec: ProtocolSpec;
+  frames: Frame[];
+  onWatch?: (index: number) => void;
+  stuck?: boolean;
+  notes?: TraceNote[];
+}) {
+  const breakAt = notes.find((n) => n.kind === "break" || n.kind === "stuck")?.index ?? frames.length - 1;
   const [showAll, setShowAll] = useState(false);
-  const [sel, setSel] = useState(frames.length - 1);
+  const [sel, setSel] = useState(breakAt);
+  const noteAt = useMemo(() => new Map(notes.map((n, i) => [n.index, { n, num: i + 1 }])), [notes]);
+  const earliestNote = notes[0]?.index ?? frames.length;
   const lanes = spec.nodes.map((n) => n.id);
   const x = (id: string) => LANE / 2 + lanes.indexOf(id) * LANE;
   const colors = useMemo(() => roleColors(spec), [spec]);
-  const first = showAll ? 1 : Math.max(1, frames.length - SHOW_LAST);
+  const first = showAll ? 1 : Math.max(1, Math.min(frames.length - SHOW_LAST, earliestNote - 3));
   const rows = frames.slice(first);
   const width = lanes.length * LANE;
   const height = HEAD + rows.length * ROW + 8;
@@ -46,7 +62,7 @@ export function TraceView({ spec, frames, onWatch, stuck = false }: { spec: Prot
     <div className="flex flex-col min-h-0">
       <div className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-muted border-b border-line">
         <span>
-          {stuck ? `${frames.length - 1} steps, and then nothing else can happen while clients still wait.` : `${frames.length - 1} steps. The last one breaks the rule.`}
+          {stuck ? `${frames.length - 1} steps, and then nothing else can happen while clients still wait.` : `${frames.length - 1} steps. Step ${breakAt} breaks the rule.`}
         </span>
         <span className="flex-1" />
         {first > 1 && (
@@ -60,6 +76,26 @@ export function TraceView({ spec, frames, onWatch, stuck = false }: { spec: Prot
           </button>
         )}
       </div>
+      {notes.length > 0 && (
+        <ol className="px-3 py-2 border-b border-line space-y-1 text-[13px]" aria-label="What led to this">
+          <li className="text-[12px] text-muted">{notes.length > 1 ? "The steps worth looking at, in order:" : "Where it goes wrong:"}</li>
+          {notes.map((n, i) => {
+            const bad = n.kind === "break" || n.kind === "stuck";
+            return (
+              <li key={n.index}>
+                <button className={`text-left w-full flex gap-2 rounded px-1 -mx-1 hover:bg-panel-2 ${sel === n.index ? "bg-panel-2" : ""}`} onClick={() => setSel(n.index)}>
+                  <span className="num text-[11px] h-[18px] min-w-[18px] px-1 rounded-full grid place-items-center shrink-0 mt-px" style={{ background: bad ? "var(--crit)" : "var(--h-strained)", color: "var(--bg)" }}>
+                    {i + 1}
+                  </span>
+                  <span>
+                    <span className="num text-muted text-[12px]">step {n.index}</span> <span className={bad ? "text-crit font-medium" : ""}>{n.title}</span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
       <div className="overflow-auto max-h-[420px] bg-bg">
         <svg width={width} height={height} className="block" role="img" aria-label="Sequence diagram of the failing run">
           {lanes.map((id) => (
@@ -76,7 +112,8 @@ export function TraceView({ spec, frames, onWatch, stuck = false }: { spec: Prot
             const y = HEAD + i * ROW + ROW / 2;
             const s = f.step!;
             const isSel = index === sel;
-            const isLast = index === frames.length - 1;
+            const isLast = index === breakAt;
+            const note = noteAt.get(index);
             const m = stepMessage(frames[index - 1]?.world, f);
             let mark: React.ReactNode = null;
             if (m && lanes.includes(m.from) && lanes.includes(m.to)) {
@@ -118,8 +155,28 @@ export function TraceView({ spec, frames, onWatch, stuck = false }: { spec: Prot
             }
             return (
               <g key={index} onClick={() => setSel(index)} className="cursor-pointer">
-                <rect x={0} y={y - ROW / 2} width={width} height={ROW} fill={isSel ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "transparent"} />
+                <rect
+                  x={0}
+                  y={y - ROW / 2}
+                  width={width}
+                  height={ROW}
+                  fill={
+                    isSel
+                      ? "color-mix(in srgb, var(--accent) 14%, transparent)"
+                      : note
+                        ? `color-mix(in srgb, ${note.n.kind === "break" || note.n.kind === "stuck" ? "var(--crit)" : "var(--h-strained)"} 10%, transparent)`
+                        : "transparent"
+                  }
+                />
                 {mark}
+                {note && (
+                  <g aria-label={`Note ${note.num}: ${note.n.title}`}>
+                    <circle cx={10} cy={y} r={8} fill={note.n.kind === "break" || note.n.kind === "stuck" ? "var(--crit)" : "var(--h-strained)"} />
+                    <text x={10} y={y + 3.5} textAnchor="middle" fontSize={10} fill="var(--bg)" className="num" fontWeight={600}>
+                      {note.num}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           })}
@@ -131,6 +188,15 @@ export function TraceView({ spec, frames, onWatch, stuck = false }: { spec: Prot
             <span className="text-muted">Step {sel}: </span>
             {frame.desc}
           </p>
+          {noteAt.get(sel) && (
+            <div
+              className="mt-2 rounded-md border px-3 py-2"
+              style={{ borderColor: noteAt.get(sel)!.n.kind === "break" || noteAt.get(sel)!.n.kind === "stuck" ? "var(--crit)" : "var(--h-strained)" }}
+            >
+              <p className="font-medium">{noteAt.get(sel)!.n.title}</p>
+              <p className="text-muted mt-0.5">{noteAt.get(sel)!.n.text}</p>
+            </div>
+          )}
           {touched && frame.world.nodes[touched] && (
             <>
               <p className="text-[12px] text-muted mt-2">{touched} afterwards:</p>

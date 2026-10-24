@@ -7,6 +7,7 @@ import { useLesson } from "./LessonContext";
 export function Goals() {
   const lesson = useLesson();
   const [openHint, setOpenHint] = useState<string | null>(null);
+  const [level, setLevel] = useState<Record<string, number>>({});
   if (!lesson) return null;
   const doneCount = lesson.goals.filter((g) => lesson.status[g.id]?.done).length;
 
@@ -44,7 +45,8 @@ export function Goals() {
                   </div>
                 )}
                 {holding && <p className="text-[12px] text-muted mt-1">Holding steady. Keep it there.</p>}
-                {g.hint && !done && (
+                {g.hints && g.hints.length > 0 && !done && <HintLadder hints={g.hints} shown={level[g.id] ?? 0} onMore={() => setLevel((l) => ({ ...l, [g.id]: (l[g.id] ?? 0) + 1 }))} />}
+                {g.hint && !g.hints && !done && (
                   <>
                     <button
                       className="text-[13px] text-accent mt-1"
@@ -62,5 +64,36 @@ export function Goals() {
         })}
       </ol>
     </section>
+  );
+}
+
+const RUNG = ["Nudge", "Direction", "Nearly the answer"];
+
+/** Hints one rung at a time, so you take only as much help as you need. */
+function HintLadder({ hints, shown, onMore }: { hints: string[]; shown: number; onMore: () => void }) {
+  const next = shown === 0 ? "Show a hint" : shown === hints.length - 1 ? "Show nearly the answer" : "A more direct hint";
+  return (
+    <div className="mt-1">
+      {shown > 0 && (
+        <ol className="mt-1 space-y-2">
+          {hints.slice(0, shown).map((h, i) => (
+            <li key={i} className="text-[13px]">
+              <span className="text-[11px] uppercase tracking-wide text-muted">{RUNG[i] ?? `Hint ${i + 1}`}</span>
+              {h.includes("\n") || (i === hints.length - 1 && /[;{]/.test(h)) ? (
+                <pre className={`mt-1 rounded-md border border-line bg-bg px-3 py-2 text-[12px] font-mono overflow-x-auto ${h.includes("\n") ? "whitespace-pre" : "whitespace-pre-wrap"}`}>{h}</pre>
+              ) : (
+                <p className="text-muted mt-0.5">{h}</p>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+      {shown < hints.length && (
+        <button className="text-[13px] text-accent mt-1" onClick={onMore}>
+          {next}
+          {shown > 0 && <span className="text-muted"> ({shown + 1} of {hints.length})</span>}
+        </button>
+      )}
+    </div>
   );
 }

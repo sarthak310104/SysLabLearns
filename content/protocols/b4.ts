@@ -83,9 +83,9 @@ export const B4: ProtocolSpec = {
   roles: (user) => ({ proposer: need(user, "proposer"), acceptor: need(user, "acceptor") }),
   workload: { p1: [{ op: "propose", value: "red" }], p2: [{ op: "propose", value: "blue" }] },
   invariants: [
-    { name: "Validity: only proposed values are chosen", check: validity },
-    { name: "Agreement: only one value is ever chosen", check: oneValueChosen },
-    { name: "Agreement: one value, decided by everyone", check: agreement },
+    { name: "Validity: only proposed values are chosen", check: validity, why: "A decided value has to be one a proposer actually proposed. Check what value your accept messages and decisions carry." },
+    { name: "Agreement: only one value is ever chosen", check: oneValueChosen, why: "Two values each got a majority. A proposer that collects promises must adopt the value with the highest accepted ballot among them, and must count each acceptor only once." },
+    { name: "Agreement: one value, decided by everyone", check: agreement, why: "Proposers decided different values. Each proposer should report the value that was actually chosen, which may not be its own." },
   ],
   network: { delayMin: 1, delayMax: 10, drop: 0.1, duplicate: 0.1 },
   crashable: ["a1", "a2", "a3"],

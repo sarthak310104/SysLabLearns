@@ -10,6 +10,7 @@ import { useProtocolWorker } from "@/lib/useProtocolWorker";
 import { CodeEditor } from "./CodeEditor";
 import { RunView, type TraceRequest } from "./RunView";
 import { TraceView } from "./TraceView";
+import { annotate, type TraceNote } from "@/engine/protocol/annotate";
 
 type Tab = "code" | "run" | "check";
 
@@ -41,7 +42,7 @@ export function Workbench({ lab, passed, onStagePassed }: { lab: ProtocolLab; pa
   /** The code the frames in the Run tab came from. */
   const [runCode, setRunCode] = useState<string | null>(null);
   const [stages, setStages] = useState<Record<string, StageState>>({});
-  const [trace, setTrace] = useState<{ stage: string; frames: Frame[] } | null>(null);
+  const [trace, setTrace] = useState<{ stage: string; frames: Frame[]; notes: TraceNote[] } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const codeRef = useRef<string>("");
 
@@ -107,7 +108,11 @@ export function Workbench({ lab, passed, onStagePassed }: { lab: ProtocolLab; pa
         if (ok) onStagePassed(stage.id);
         else if (r.outcome.failure) {
           const rep = await worker.run({ type: "replay", lab: lab.id, code: c, stage: stage.id, failure: r.outcome.failure });
-          if (rep.type === "frames") setTrace({ stage: stage.id, frames: rep.frames });
+          if (rep.type === "frames") {
+            const f = r.outcome.failure;
+            const notes = annotate(lab.spec, rep.frames, { only: stage.invariants ?? null, stuck: f.name === "Work never finishes" ? f.message : null });
+            setTrace({ stage: stage.id, frames: rep.frames, notes });
+          }
         }
         return ok;
       }
@@ -271,7 +276,14 @@ export function Workbench({ lab, passed, onStagePassed }: { lab: ProtocolLab; pa
                   )}
                   {trace?.stage === st.id && s?.status === "failed" && (
                     <div className="mt-3 rounded-md border border-line overflow-hidden">
-                      <TraceView key={trace.frames.length} spec={lab.spec} frames={trace.frames} stuck={f?.name === "Work never finishes"} onWatch={(index) => watch(st, trace.frames, index)} />
+                      <TraceView
+                        key={trace.frames.length}
+                        spec={lab.spec}
+                        frames={trace.frames}
+                        stuck={f?.name === "Work never finishes"}
+                        notes={trace.notes}
+                        onWatch={(index) => watch(st, trace.frames, index)}
+                      />
                     </div>
                   )}
                 </li>

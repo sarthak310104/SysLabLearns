@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { annotate } from "@/engine/protocol/annotate";
 import type { Frame } from "@/engine/protocol/check";
 import type { ProtocolSpec, Step } from "@/engine/protocol/types";
 import { fmtMs, msgLabel, placeNodes, roleColors, sentTimes, stepMessage, VIEW_H, VIEW_W, violationOf } from "./util";
@@ -38,6 +39,7 @@ export function RunView({ spec, frames, steps, source, loading, error, onTrace, 
   const pos = useMemo(() => Object.fromEntries(placed.map((p) => [p.id, p])), [placed]);
   const colors = useMemo(() => roleColors(spec), [spec]);
   const sent = useMemo(() => (frames ? sentTimes(frames) : new Map<number, number>()), [frames]);
+  const notes = useMemo(() => (frames ? annotate(spec, frames) : []), [spec, frames]);
 
   useEffect(() => {
     setIdx(Math.min(startAt, Math.max(0, (frames?.length ?? 1) - 1)));
@@ -170,10 +172,34 @@ export function RunView({ spec, frames, steps, source, loading, error, onTrace, 
           {timed && ` · ${fmtMs(clock)}`}
         </span>
       </div>
-      {firstBad >= 0 && firstBad !== idx && (
-        <button className="mx-3 mt-1 text-left text-[12px] text-crit hover:underline" onClick={() => setIdx(firstBad)}>
-          Something breaks at step {firstBad}. Jump there.
-        </button>
+      {firstBad >= 0 && (
+        <div className="mx-3 mt-1 flex flex-wrap items-center gap-1.5 text-[12px]">
+          {firstBad !== idx && (
+            <button className="text-left text-crit hover:underline mr-1" onClick={() => setIdx(firstBad)}>
+              Something breaks at step {firstBad}. Jump there.
+            </button>
+          )}
+          {notes.length > 1 && <span className="text-muted">Key steps:</span>}
+          {notes.length > 1 &&
+            notes.map((n, i) => (
+              <button
+                key={n.index}
+                title={n.title}
+                onClick={() => {
+                  setPlaying(false);
+                  setIdx(n.index);
+                }}
+                className="num rounded-full px-2 py-0.5 border"
+                style={{
+                  borderColor: n.kind === "break" ? "var(--crit)" : "var(--h-strained)",
+                  background: n.index === idx ? (n.kind === "break" ? "var(--crit)" : "var(--h-strained)") : "transparent",
+                  color: n.index === idx ? "var(--bg)" : "var(--text)",
+                }}
+              >
+                {i + 1}. step {n.index}
+              </button>
+            ))}
+        </div>
       )}
 
       {/* Network picture */}
@@ -246,10 +272,18 @@ export function RunView({ spec, frames, steps, source, loading, error, onTrace, 
           {frame.desc}
         </p>
         {!timed && <p className="text-[12px] text-muted mt-0.5">This run comes from the model checker, where any message can arrive at any time, more than once, or never.</p>}
+        {notes.find((n) => n.index === idx && n.kind !== "break") && (
+          <p className="mt-1 rounded-md border px-2.5 py-1.5" style={{ borderColor: "var(--h-strained)" }}>
+            <span className="font-medium">{notes.find((n) => n.index === idx)!.title}.</span> <span className="text-muted">{notes.find((n) => n.index === idx)!.text}</span>
+          </p>
+        )}
         {violation && (
           <p className="mt-1 text-crit">
             <span className="font-medium">{violation.name}.</span> {violation.message}
           </p>
+        )}
+        {violation && idx === firstBad && notes.find((n) => n.index === idx && n.kind === "break") && (
+          <p className="mt-1 text-[13px] text-muted">{spec.invariants.find((v) => v.name === violation.name)?.why}</p>
         )}
         {finished && !violation && (
           <p className="mt-1 text-muted">{w.history.length && ops.length === w.history.filter((e) => e.kind === "invoke").length ? "Every command finished." : "The run stopped here."}</p>

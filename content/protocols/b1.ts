@@ -148,8 +148,8 @@ export const B1: ProtocolSpec = {
   nodes: PROCS.map((p, i) => ({ id: p, role: "process", label: `Process ${i + 1}` })),
   roles: (user) => ({ process: process(user) }),
   invariants: [
-    { name: "Lamport clocks respect causality", check: lamportRespectsCausality },
-    { name: "Vector clocks capture causality exactly", check: vectorsCaptureCausality },
+    { name: "Lamport clocks respect causality", check: lamportRespectsCausality, why: "An event got a timestamp no bigger than something that happened before it. Usually the receive didn't jump past the stamp the message carried." },
+    { name: "Vector clocks capture causality exactly", check: vectorsCaptureCausality, why: "Comparing two of your stamps gave the wrong answer about which came first. Check that each process bumps only its own slot, that receive merges before it ticks, and that you return a copy rather than the vector itself." },
   ],
   network: { delayMin: 1, delayMax: 25, drop: 0, duplicate: 0 },
   budget: { maxDepth: 12, maxStates: 50000, crashes: 0 },

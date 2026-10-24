@@ -30,7 +30,7 @@ export function ProtocolShell({ slug, children }: { slug: string; children: Reac
     [slug],
   );
 
-  const goals = useMemo(() => lab.stages.map((st, i) => ({ id: st.id, text: `Stage ${i + 1}, ${st.title}: ${st.blurb}`, hint: st.hint })), [lab]);
+  const goals = useMemo(() => lab.stages.map((st, i) => ({ id: st.id, text: `Stage ${i + 1}, ${st.title}: ${st.blurb}`, hints: st.hints })), [lab]);
   const ctx = useMemo(() => ({ slug, goals, status }), [slug, goals, status]);
   const passed = useMemo(() => new Set(Object.entries(status).filter(([, v]) => v.done).map(([k]) => k)), [status]);
 

@@ -9,6 +9,8 @@ export interface Goal {
   id: string;
   text: string;
   hint?: string;
+  /** A ladder of hints instead of one: a nudge, a direction, then nearly the answer. */
+  hints?: string[];
   holdMs: number;
   check: (snap: Snapshot, graph: Graph, mem: Record<string, unknown>) => boolean;
 }

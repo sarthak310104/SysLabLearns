@@ -56,7 +56,7 @@ export const B2: ProtocolSpec = {
   roles: (user) => ({ client: need(user, "client"), server: need(user, "server") }),
   workload: { client1: appends("client1", ["a", "b", "c", "d"]), client2: appends("client2", ["x", "y", "z"]) },
   checkerWorkload: { client1: appends("client1", ["a", "b"]), client2: appends("client2", ["x"]) },
-  invariants: [{ name: "Every append happens exactly once", check: appliedOnce }],
+  invariants: [{ name: "Every append happens exactly once", check: appliedOnce, why: "The server did the same request twice. That happens when a retry or a duplicated message arrives and the server treats it as new. It needs to remember, per client, the last request it did and the answer it gave." }],
   network: { delayMin: 1, delayMax: 10, drop: 0.2, duplicate: 0.2 },
   budget: { maxDepth: 20, maxStates: 400000, crashes: 0 },
 };

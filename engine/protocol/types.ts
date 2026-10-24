@@ -120,6 +120,8 @@ export interface Invariant {
   name: string;
   /** Return a plain-words description of what's wrong, or null if all is well. */
   check(w: World): string | null;
+  /** What breaking this rule usually means in your code, for the trace notes. */
+  why?: string;
 }
 
 export interface NetworkConfig {
@@ -146,6 +148,8 @@ export interface CheckerBudget {
 export interface ProtocolSpec {
   id: string;
   nodes: { id: NodeId; role: string; label: string }[];
+  /** Roles the lab writes itself rather than the learner (trace notes skip them). */
+  labRoles?: string[];
   /** Build each role's handlers from the learner's exports. */
   roles(user: Record<string, unknown>): Record<string, Handlers>;
   /** Commands each client works through, one at a time. */
