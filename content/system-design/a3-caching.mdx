@@ -16,6 +16,8 @@ In this lab, 80% of requests go to the hottest 1% of keys. That's realistic: a f
 
 The fraction of lookups answered from the cache is the **hit ratio**. A hit takes about a millisecond. A miss goes to the database as before, and the answer is stored on the way back so the next request for that key is a hit.
 
+<HitRatioCurve />
+
 Try lowering the hot-key share on the Users component after you've added a cache. As traffic spreads out evenly, the hit ratio drops and the database load comes back.
 
 <Note>
@@ -30,6 +32,18 @@ Every cached answer is a copy, and copies go out of date. The **time to live** (
 - A short TTL keeps data fresh, but sends more traffic through to the database.
 
 There's no right answer, only a choice about how stale your users can tolerate.
+
+<TtlTradeoff />
+
+## Keeping the cache in step with writes
+
+Reads are only half the story. When data changes, the cached copy has to be dealt with. There are three common patterns:
+
+- **Cache-aside with invalidation**: write to the database, then delete the cached entry. The next read misses and fetches the new value. Simple and the most common, which is what the lab does.
+- **Write-through**: write to the cache and the database together, so the cache is always current. Writes get slower, and you cache data that may never be read.
+- **Write-behind**: write to the cache and let it update the database later. Very fast writes, but if the cache dies before flushing, those writes are gone.
+
+A classic bug with cache-aside is a race: a slow reader fetches the old value from the database, a writer updates and invalidates, and then the slow reader puts the old value back into the cache. Short TTLs limit how long that mistake can live.
 
 ## A cold cache is a hidden risk
 

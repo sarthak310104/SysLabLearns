@@ -24,6 +24,11 @@
   --grid: #1b1b23;
   --glow: 0 0 10px color-mix(in srgb, var(--accent) 65%, transparent), 0 0 28px color-mix(in srgb, var(--accent) 25%, transparent);
   --glow-soft: 0 0 14px color-mix(in srgb, var(--accent) 30%, transparent);
+  /* Chart series, validated for colour-blind separation on the panel surface. */
+  --series-1: #ff1f4b;
+  --series-2: #3d8bff;
+  --series-3: #d95a8f;
+  --series-4: #9a6bff;
   color-scheme: dark;
 }
 
@@ -42,6 +47,10 @@
   --grid: #e6dfe2;
   --glow: 0 0 0 transparent;
   --glow-soft: 0 0 0 transparent;
+  --series-1: #d10f3b;
+  --series-2: #2f6fd1;
+  --series-3: #c2477a;
+  --series-4: #7b4fd6;
   color-scheme: light;
 }
 

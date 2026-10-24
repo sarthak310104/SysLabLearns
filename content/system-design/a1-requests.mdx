@@ -14,11 +14,21 @@ How long a request takes, its **latency**, is the work itself plus however long 
 
 Here's the part that surprises people: waiting time doesn't grow in a straight line with load. At half capacity, requests rarely wait. Near full capacity, a small burst of arrivals stacks up faster than the workers can clear it, and those requests wait behind each other. Latency shoots up long before the server is technically "full".
 
+<LatencyCurve />
+
 That's why the lab shows **p99**, the slowest 1% of requests. Averages hide the pain. If you serve a million requests a day, a p99 of 500 ms means ten thousand people a day waited half a second.
 
 <Note>
 A good rule of thumb: keep busy resources under about 70 to 80% utilization if you care about latency. The last 20% of capacity is the most expensive.
 </Note>
+
+## How many workers do you need?
+
+There's a beautifully simple rule for this, called **Little's law**: the number of requests inside a system at any moment equals how many arrive per second multiplied by how long each one stays. If 200 requests a second each take 120 ms, there are 24 in flight on average. Each in-flight request needs a worker, so that's your minimum, and you'd add headroom on top.
+
+It works for any stable system: a server, a database's connection pool, a checkout queue in a shop. It's the fastest sanity check in capacity planning.
+
+<LittlesLaw />
 
 ## Past capacity, the queue fills and requests get turned away
 

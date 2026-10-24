@@ -21,6 +21,8 @@ A queue's real superpower is smoothing out bursts. Switch the traffic to spikes.
 
 This works only if workers can keep up *on average*. If they can't, the backlog grows forever. Watch **Oldest**: the age of the oldest waiting message is the number users actually feel, because it's how late their work will be done.
 
+<BacklogSim />
+
 <Note>
 "Accepted" isn't "done". Once work is asynchronous, the user needs a way to find out when it finishes: a status page, a notification, or the app polling for the result.
 </Note>
@@ -30,6 +32,15 @@ This works only if workers can keep up *on average*. If they can't, the backlog 
 Crash all the workers. The API keeps accepting uploads and users keep getting fast answers. The work just waits. When the workers come back, they pick up where they left off.
 
 That separation is called **decoupling**: a failure on one side of the queue doesn't immediately take down the other. A queue that's durable (keeps messages through crashes) and retries failed deliveries, with a **dead-letter** pile for messages that keep failing, is one of the most useful building blocks you'll have.
+
+## Delivered once, twice, or not at all?
+
+When a worker crashes halfway through a message, the queue can't know whether the work happened. It has to pick a rule:
+
+- **At most once**: remove the message before processing. A crash loses it.
+- **At least once**: remove it only after the worker confirms. A crash means it's delivered again, so some messages are processed twice.
+
+Most systems choose at least once and make the work **idempotent**: doing it twice has the same effect as doing it once. Charging a card twice is a disaster; "set this order's status to paid" is safe to repeat. Giving each message an id and remembering which ids you've finished is the usual way to get there.
 
 <Goals />
 

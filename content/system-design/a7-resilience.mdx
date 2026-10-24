@@ -8,6 +8,8 @@ Try it. Almost nothing succeeds.
 
 Here's what's happening. Requests pile up in the API server's queue of 200. Users only wait one second before giving up, but a request now waits longer than that in the queue. By the time a worker picks it up, the user has gone. The database spends all its capacity on answers nobody is waiting for. Throughput is fine; **goodput**, useful throughput, is zero.
 
+<GoodputSweep />
+
 Retries make it worse. Each user who gives up immediately tries again, up to three times, so the load on an already overloaded system multiplies.
 
 ## Shed load early
@@ -19,6 +21,8 @@ This is **load shedding**. A fast "no" is better than a slow "yes" that arrives 
 ## Retry budgets
 
 Retries are useful. Most failures are blips, and trying again just works. The problem is when everything is failing, because then retries only add load.
+
+<RetryCurves />
 
 Two habits make retries safe:
 

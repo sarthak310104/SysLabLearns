@@ -25,9 +25,19 @@ While a replica lags, it answers reads with old data: a **stale read**. Someone 
 
 Raise the share of writes and watch the **Behind by** number climb on each replica.
 
+<StaleReadTimeline />
+
+<LagGrowth />
+
 <Note>
 A common fix is **read-your-writes**: right after someone writes, send *their* reads to the primary for a few seconds. Everyone else can tolerate a little staleness.
 </Note>
+
+## Synchronous or asynchronous?
+
+Everything above assumes **asynchronous** replication: the primary confirms a write as soon as it has it, and replicas catch up afterwards. It's fast, but there's a window where the newest writes exist only on the primary.
+
+**Synchronous** replication makes the primary wait until at least one replica has the write before confirming it. No confirmed write can be lost to a single crash, but every write now pays for a network round trip, and if that replica stalls, writes stall too. Many databases offer a middle ground: wait for one replica, not all of them.
 
 ## When the primary dies
 

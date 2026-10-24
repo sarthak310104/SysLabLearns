@@ -10,6 +10,8 @@ That's fine when every server is identical. In the lab, Server 3 is older: each 
 
 Press **Send traffic** and look at which server lights up.
 
+<StrategyRace />
+
 ## Least connections: send work where there's room
 
 **Least connections** sends each request to the server with the fewest requests in progress. A slow server holds onto its requests longer, so its count stays high and it naturally gets less new work. The balancer doesn't need to know *why* a server is slow; it just notices.
@@ -27,6 +29,8 @@ Crash a server and watch the client. If the balancer doesn't know the server is 
 **Health checks** fix that: the balancer regularly asks each server "are you alive?" and stops routing to the ones that don't answer. In the lab, turning them on removes dead servers from rotation immediately. In real systems there's a delay of a few seconds while checks fail, so some errors leak through.
 
 But health checks only stop requests going to the dead server. The survivors now carry its share. If they didn't have spare capacity, you've swapped "some requests fail" for "everything is slow and some requests fail". Planning for that is called **N+1 capacity**: enough servers that you can lose one and still cope.
+
+<CapacityPlanner />
 
 <Goals />
 

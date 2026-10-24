@@ -10,13 +10,17 @@ The lab starts with two shards and 900 requests a second. Each shard handles abo
 Notice that adding a shard changes where keys go. In a real system that means moving data. Simple "hash mod N" sends almost every key somewhere new when N changes; **consistent hashing** is the usual fix, moving only about one Nth of the keys.
 </Note>
 
+<HashRingExplorer />
+
 ## The celebrity problem
 
 Hashing spreads *keys* evenly. It doesn't spread *traffic* evenly if some keys are far more popular than others.
 
 Turn up **Traffic to one celebrity key**. That one key always hashes to the same shard, so that shard takes the celebrity's entire load on top of its normal share. It melts while the other shards sit half idle. The total capacity is fine; it's in the wrong place.
 
-Now try adding more shards. It doesn't help. The celebrity still lands on exactly one of them.
+Now try adding more shards. It doesn't help.
+
+<HotShardBars /> The celebrity still lands on exactly one of them.
 
 ## What actually helps
 

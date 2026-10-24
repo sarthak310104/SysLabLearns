@@ -19,6 +19,8 @@ You can't have both during a partition. That trade-off is the core of the **CAP 
 
 In available mode, writes keep succeeding and **Not yet synced** climbs on both sides. Reconnect the link, and the buffered writes flow across. Any key that was written on *both* sides during the partition is a conflict. Here, the system keeps one version and the other is simply lost. Those are your **lost updates**.
 
+<ConflictCurve />
+
 <Note>
 Real systems handle conflicts in different ways: last-writer-wins (simple, loses data), keeping both versions and asking the app to merge, or data types that merge automatically. That last option, CRDTs, has its own module in the protocols track.
 </Note>
@@ -27,9 +29,15 @@ Real systems handle conflicts in different ways: last-writer-wins (simple, loses
 
 Switch both databases to consistent mode. Before cutting anything, look at the latency: every write now waits for a round trip to the other region. Consistency costs latency on every write, not just during failures.
 
+<SyncLatency />
+
 Cut the link again. Writes fail instead of drifting. When it heals, there's nothing to reconcile.
 
 Neither choice is wrong. A shopping cart can usually tolerate a conflict; a bank balance can't.
+
+## Beyond partitions
+
+CAP only describes what happens *during* a partition, which is rare. The everyday trade-off is between consistency and **latency**, as the diagram above shows. That fuller picture has a name, **PACELC**: if there's a Partition, choose Availability or Consistency; Else, choose Latency or Consistency. Most of the time you're making the second choice.
 
 <Goals />
 
