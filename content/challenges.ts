@@ -22,18 +22,18 @@ export interface Challenge extends Preset {
   hints: string[];
 }
 
-function n(id: string, kind: ComponentKind, label: string, x: number, y: number, config: Partial<AnyConfig> = {}, region?: Region): GraphNode {
+export function n(id: string, kind: ComponentKind, label: string, x: number, y: number, config: Partial<AnyConfig> = {}, region?: Region): GraphNode {
   return { id, kind, label, position: { x, y }, config: { ...defaultConfig(kind), ...config } as AnyConfig, ...(region ? { region } : {}) };
 }
 
 const ALL: ComponentKind[] = ["loadBalancer", "server", "cache", "database", "replica", "queue"];
 
 const client = (s: Snapshot, id: string) => s.nodes[id];
-const errorsUnder = (id: string, max: number) => (s: Snapshot) => {
+export const errorsUnder = (id: string, max: number) => (s: Snapshot) => {
   const c = client(s, id);
   return Boolean(c) && c.okPerSec + c.errorsPerSec > 0 && c.errorRate < max;
 };
-const p99Under = (id: string, ms: number) => (s: Snapshot) => {
+export const p99Under = (id: string, ms: number) => (s: Snapshot) => {
   const c = client(s, id);
   return Boolean(c) && c.okPerSec > 0 && c.p99 < ms;
 };
@@ -41,7 +41,7 @@ const p50Under = (id: string, ms: number) => (s: Snapshot) => {
   const c = client(s, id);
   return Boolean(c) && c.okPerSec > 0 && c.p50 < ms;
 };
-const underBudget = (budget: number) => (s: Snapshot, g: Graph) => monthlyCost(g, s).total <= budget;
+export const underBudget = (budget: number) => (s: Snapshot, g: Graph) => monthlyCost(g, s).total <= budget;
 
 /** Everything at once, for long enough that it isn't luck. */
 function passGoal(reqs: Requirement[], holdMs = 15000): Goal {

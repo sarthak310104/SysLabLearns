@@ -47,6 +47,7 @@ const NAV: { href: string; label: string; wide?: boolean }[] = [
   { href: "/sandbox/", label: "Sandbox" },
   { href: "/review/", label: "Review" },
   { href: "/progress/", label: "Progress" },
+  { href: "/interview/", label: "Interview", wide: true },
   { href: "/glossary/", label: "Glossary", wide: true },
 ];
 

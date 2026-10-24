@@ -326,7 +326,10 @@ export function CompareView() {
     Promise.all([loadDesign("sandbox"), listDesigns()]).then(([live, versions]) => {
       const list: Choice[] = [...(live ? [{ id: "sandbox", name: "Sandbox (now)", graph: live }] : []), ...versions.map((v) => ({ id: v.id, name: v.name, graph: v.graph }))];
       setChoices(list);
-      setPick({ a: list[1]?.id ?? list[0]?.id ?? "", b: list[0]?.id ?? "" });
+      // Links can name the two designs: /compare/?a=<id>&b=<id>
+      const q = new URLSearchParams(window.location.search);
+      const has = (id: string | null) => Boolean(id && list.some((c) => c.id === id));
+      setPick({ a: has(q.get("a")) ? q.get("a")! : (list[1]?.id ?? list[0]?.id ?? ""), b: has(q.get("b")) ? q.get("b")! : (list[0]?.id ?? "") });
     });
   }, []);
 

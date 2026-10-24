@@ -116,6 +116,17 @@ export function Roadmap() {
         })}
       </ul>
     </section>
+    <section className="mt-12" aria-labelledby="interview">
+      <h2 id="interview" className="text-xl font-semibold tracking-tight">
+        Interview practice
+      </h2>
+      <p className="text-muted mt-1 mb-4 max-w-[60ch]">
+        Timed design questions run like a real interview: clarify, estimate, build, then survive a follow-up. Ends with a scorecard and a suggested design.
+      </p>
+      <Link href="/interview/" className="inline-block px-4 py-2 rounded-md border border-line hover:bg-panel-2">
+        Start an interview
+      </Link>
+    </section>
     </>
   );
 }

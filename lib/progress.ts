@@ -59,7 +59,17 @@ export interface ActivityRow {
   goals: number;
 }
 
+export interface InterviewRow {
+  id: string;
+  slug: string;
+  at: number;
+  score: number;
+  grade: string;
+  minutes: number;
+}
+
 class LabDB extends Dexie {
+  interviews!: Table<InterviewRow, string>;
   cards!: Table<CardRow, string>;
   activity!: Table<ActivityRow, string>;
   aws!: Table<AwsRow, string>;
@@ -75,6 +85,7 @@ class LabDB extends Dexie {
     this.version(3).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab" });
     this.version(4).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab", aws: "id" });
     this.version(5).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab", aws: "id", cards: "id, lesson, due", activity: "day" });
+    this.version(6).stores({ goals: "id, lesson", designs: "id, updatedAt", quizzes: "lesson", code: "lab", aws: "id", cards: "id, lesson, due", activity: "day", interviews: "id, slug" });
   }
 }
 
@@ -321,6 +332,24 @@ export async function bumpActivity(add: Partial<Omit<ActivityRow, "day">>): Prom
 export async function loadActivity(): Promise<ActivityRow[]> {
   try {
     return (await getDb()?.activity.toArray()) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Interview results                                                   */
+/* ------------------------------------------------------------------ */
+
+export async function saveInterviewResult(r: Omit<InterviewRow, "id">): Promise<void> {
+  try {
+    await getDb()?.interviews.put({ ...r, id: `${r.slug}-${r.at}` });
+  } catch {}
+}
+
+export async function loadInterviewResults(): Promise<InterviewRow[]> {
+  try {
+    return ((await getDb()?.interviews.toArray()) ?? []).sort((a, b) => b.at - a.at);
   } catch {
     return [];
   }

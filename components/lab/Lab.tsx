@@ -56,6 +56,16 @@ export interface LabProps {
   events?: boolean;
   /** Show a Share button; this is the picture's default title. */
   shareName?: string;
+  /** Lets the page drive the lab (interview follow-ups start events this way). */
+  control?: React.MutableRefObject<LabControl | null>;
+}
+
+export interface LabControl {
+  graph: Graph;
+  playing: boolean;
+  play(): void;
+  pause(): void;
+  runScenario(sc: Scenario): void;
 }
 
 export function toFlow(graph: Graph): { nodes: LabFlowNode[]; edges: Edge[] } {
@@ -225,6 +235,11 @@ function LabInner(props: LabProps) {
     for (const a of restoreRef.current) sim.fault(a);
     restoreRef.current = [];
   }, [sim]);
+
+  const control = props.control;
+  useEffect(() => {
+    if (control) control.current = { graph, playing: sim.playing, play: sim.play, pause: sim.pause, runScenario };
+  });
 
   const wide = props.layout === "wide";
   const labels = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n.data.label])), [nodes]);
