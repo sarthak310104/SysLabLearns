@@ -30,8 +30,8 @@ import { SnapshotContext } from "./LabContext";
 import { DRAG_MIME, Palette } from "./Palette";
 import { Toolbar } from "./Toolbar";
 
-const nodeTypes = { lab: LabNode };
-const edgeTypes = { flight: FlightEdge };
+export const nodeTypes = { lab: LabNode };
+export const edgeTypes = { flight: FlightEdge };
 const EDGE_DEFAULTS = { type: "flight", markerEnd: { type: MarkerType.ArrowClosed, color: "var(--muted)" } };
 
 export interface GoalUpdate {
@@ -55,7 +55,7 @@ export interface LabProps {
   events?: boolean;
 }
 
-function toFlow(graph: Graph): { nodes: LabFlowNode[]; edges: Edge[] } {
+export function toFlow(graph: Graph): { nodes: LabFlowNode[]; edges: Edge[] } {
   return {
     nodes: graph.nodes.map((n) => ({
       id: n.id,

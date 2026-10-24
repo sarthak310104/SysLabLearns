@@ -15,7 +15,8 @@ export const flightBus = {
     set.add(fn);
     return () => set!.delete(fn);
   },
-  emit(flights: Flight[]): void {
-    for (const f of flights) listeners.get(f.edgeId)?.forEach((fn) => fn(f));
+  /** `ns` keeps two simulations on one page (the compare view) from drawing on each other's links. */
+  emit(flights: Flight[], ns = ""): void {
+    for (const f of flights) listeners.get(ns + f.edgeId)?.forEach((fn) => fn(f));
   },
 };

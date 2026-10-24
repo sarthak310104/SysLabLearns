@@ -5,3 +5,6 @@ import type { Snapshot } from "@/engine/model/types";
 
 export const SnapshotContext = createContext<Snapshot | null>(null);
 export const useSnapshot = () => useContext(SnapshotContext);
+
+/** Prefix for this canvas's animation channel; see flightBus. */
+export const FlightNsContext = createContext("");

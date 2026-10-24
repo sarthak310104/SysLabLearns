@@ -89,6 +89,22 @@ export async function saveDesign(id: string, name: string, graph: Graph): Promis
   } catch {}
 }
 
+/** Saved sandbox versions (every design except the live sandbox), newest first. */
+export async function listDesigns(): Promise<{ id: string; name: string; graph: Graph; updatedAt: number }[]> {
+  try {
+    const rows = (await getDb()?.designs.toArray()) ?? [];
+    return rows.filter((r) => r.id.startsWith("v-")).sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteDesign(id: string): Promise<void> {
+  try {
+    await getDb()?.designs.delete(id);
+  } catch {}
+}
+
 export async function loadDesign(id: string): Promise<Graph | null> {
   try {
     return (await getDb()?.designs.get(id))?.graph ?? null;

@@ -27,7 +27,7 @@ function structureKey(g: Graph): string {
  * Drives the engine worker for a graph. Structural edits restart the run;
  * config edits apply live, so you can turn a knob and watch the effect.
  */
-export function useSimulation(graph: Graph, seed = 42) {
+export function useSimulation(graph: Graph, seed = 42, ns = "") {
   const workerRef = useRef<Worker | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -60,7 +60,7 @@ export function useSimulation(graph: Graph, seed = 42) {
     workerRef.current = worker;
     worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
       const { snapshot: snap, playing: isPlaying } = e.data;
-      flightBus.emit(snap.flights);
+      flightBus.emit(snap.flights, ns);
       for (const s of Object.values(snap.nodes)) {
         let h = historyRef.current.get(s.id);
         if (!h) historyRef.current.set(s.id, (h = []));

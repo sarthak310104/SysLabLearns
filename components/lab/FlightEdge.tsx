@@ -1,10 +1,10 @@
 "use client";
 
 import { BaseEdge, getBezierPath, type EdgeProps } from "@xyflow/react";
-import { useEffect, useRef } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { flightBus } from "@/lib/flightBus";
 import type { Flight } from "@/engine/model/types";
-import { useSnapshot } from "./LabContext";
+import { FlightNsContext, useSnapshot } from "./LabContext";
 import { edgeHealth, edgeWidth, HEALTH_COLOR, HEALTH_LABEL, type Health } from "@/lib/health";
 
 const DURATION_MS = 750;
@@ -25,6 +25,7 @@ export function FlightEdge(props: EdgeProps) {
   const { id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected } = props;
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const snap = useSnapshot();
+  const ns = useContext(FlightNsContext);
   const isCut = snap?.cutEdges.includes(id) ?? false;
   const traffic = snap?.edges?.[id];
   const health = edgeHealth(traffic, snap?.nodes[target], isCut);
@@ -79,7 +80,7 @@ export function FlightEdge(props: EdgeProps) {
       if (raf.current === null) raf.current = requestAnimationFrame(step);
     };
 
-    const unsub = flightBus.subscribe(id, onFlight);
+    const unsub = flightBus.subscribe(ns + id, onFlight);
     return () => {
       unsub();
       if (raf.current !== null) cancelAnimationFrame(raf.current);
@@ -87,7 +88,7 @@ export function FlightEdge(props: EdgeProps) {
       dots.current = [];
       raf.current = null;
     };
-  }, [id]);
+  }, [id, ns]);
 
   return (
     <>
