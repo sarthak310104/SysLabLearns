@@ -29,6 +29,11 @@
   --series-2: #3d8bff;
   --series-3: #d95a8f;
   --series-4: #9a6bff;
+  /* Traffic health inside labs: ideal, good, could be better, failing. CVD-checked. */
+  --h-ideal: #3d8bff;
+  --h-good: #2fd27a;
+  --h-strained: #ffd23f;
+  --h-failing: #ff3b3b;
   color-scheme: dark;
 }
 
@@ -51,6 +56,10 @@
   --series-2: #2f6fd1;
   --series-3: #c2477a;
   --series-4: #7b4fd6;
+  --h-ideal: #2f6fd1;
+  --h-good: #13875a;
+  --h-strained: #c99000;
+  --h-failing: #d42a2a;
   color-scheme: light;
 }
 
@@ -188,10 +197,10 @@ body {
   text-shadow: none;
 }
 .flight-dot {
-  filter: drop-shadow(0 0 3px var(--accent));
+  filter: drop-shadow(0 0 3px currentColor);
 }
 .flight-dot.err {
-  filter: drop-shadow(0 0 4px var(--crit));
+  filter: drop-shadow(0 0 4px currentColor);
 }
 :root[data-theme="light"] .flight-dot {
   filter: none;
@@ -239,4 +248,20 @@ body {
 :root[data-theme="light"] .neon-line,
 :root[data-theme="light"] .msg-dot {
   filter: none;
+}
+
+/* Failing links march, so "red" never relies on color alone. */
+@keyframes march {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+.edge-failing {
+  stroke-dasharray: 8 4;
+  animation: march 0.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge-failing {
+    animation: none;
+  }
 }

@@ -178,9 +178,18 @@ export interface Incident {
   text: string;
 }
 
+/** Traffic over one link, smoothed. */
+export interface EdgeStats {
+  /** Requests sent along the link per second. */
+  perSec: number;
+  /** Share of answers coming back along it that were failures. */
+  errorRate: number;
+}
+
 export interface Snapshot {
   time: number;
   nodes: Record<string, NodeStats>;
+  edges: Record<string, EdgeStats>;
   flights: Flight[];
   incidents: Incident[];
   /** Links currently cut by a network partition. */

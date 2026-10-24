@@ -21,6 +21,7 @@ import type { AnyConfig, ComponentKind, Graph, Snapshot } from "@/engine/model/t
 import { GoalTracker, type Goal } from "@/lib/goals";
 import { useSimulation } from "@/lib/useSimulation";
 import { FlightEdge } from "./FlightEdge";
+import { HealthPanel } from "./HealthPanel";
 import { Inspector, type SelectedLink } from "./Inspector";
 import { LabNode, type LabFlowNode } from "./LabNode";
 import { SnapshotContext } from "./LabContext";
@@ -200,6 +201,8 @@ function LabInner(props: LabProps) {
     [setEdges],
   );
   const wide = props.layout === "wide";
+  const labels = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n.data.label])), [nodes]);
+  const kinds = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n.data.kind])) as Record<string, ComponentKind>, [nodes]);
 
   const canvas = (
     <div ref={wrapperRef} className="relative flex-1 min-h-[320px]" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
@@ -236,6 +239,16 @@ function LabInner(props: LabProps) {
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--grid)" />
         <Controls showInteractive={false} position="bottom-left" />
       </ReactFlow>
+      <HealthPanel
+        snapshot={sim.snapshot}
+        labels={labels}
+        kinds={kinds}
+        defaultOpen={wide}
+        onSelect={(id) => {
+          setSelectedId(id);
+          setSelectedEdgeId(null);
+        }}
+      />
     </div>
   );
 

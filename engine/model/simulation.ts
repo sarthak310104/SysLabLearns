@@ -10,6 +10,7 @@ import type {
   DatabaseConfig,
   FaultAction,
   Flight,
+  EdgeStats,
   Graph,
   GraphEdge,
   Incident,
@@ -1045,6 +1046,10 @@ export class Simulation {
   private buffered = new Map<string, Ev[]>();
   private flights: Flight[] = [];
   private flightCounts = new Map<string, number>();
+  /** Raw counts per link since the last snapshot, and their smoothed rates. */
+  private edgeCounts = new Map<string, { sent: number; back: number; failed: number }>();
+  private edgeStats = new Map<string, EdgeStats>();
+  private lastSnapAt = 0;
   private incidents: Incident[] = [];
   private incidentId = 1;
 
@@ -1143,6 +1148,15 @@ export class Simulation {
   }
 
   private recordFlight(edgeId: string, dir: "fwd" | "back", ok: boolean): void {
+    let c = this.edgeCounts.get(edgeId);
+    if (!c) this.edgeCounts.set(edgeId, (c = { sent: 0, back: 0, failed: 0 }));
+    if (dir === "fwd") {
+      c.sent++;
+      if (!ok) c.failed++, c.back++;
+    } else {
+      c.back++;
+      if (!ok) c.failed++;
+    }
     const key = edgeId + dir + (ok ? "" : "x");
     const n = this.flightCounts.get(key) ?? 0;
     if (n >= FLIGHT_CAP_PER_EDGE) return;
@@ -1362,9 +1376,25 @@ export class Simulation {
 
     this.detectIncidents(nodes);
 
+    const dt = Math.max(0.001, (this.now - this.lastSnapAt) / 1000);
+    this.lastSnapAt = this.now;
+    const edges: Record<string, EdgeStats> = {};
+    for (const id of this.edges.keys()) {
+      const c = this.edgeCounts.get(id) ?? { sent: 0, back: 0, failed: 0 };
+      const prev = this.edgeStats.get(id) ?? { perSec: 0, errorRate: 0 };
+      const rate = c.sent / dt;
+      const err = c.back ? c.failed / c.back : prev.errorRate * 0.8;
+      const next = { perSec: prev.perSec * 0.7 + rate * 0.3, errorRate: prev.errorRate * 0.7 + err * 0.3 };
+      if (next.perSec < 0.05) next.perSec = 0;
+      this.edgeStats.set(id, next);
+      edges[id] = next;
+    }
+    this.edgeCounts.clear();
+
     const snap: Snapshot = {
       time: this.now,
       nodes,
+      edges,
       flights: this.flights,
       incidents: this.incidents,
       cutEdges: [...this.cut],
