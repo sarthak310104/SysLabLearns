@@ -30,11 +30,9 @@ Same as lesson C7: a role Lambda can take on, with permission to write logs.
 
 Your function talks to DynamoDB with the **AWS SDK for JavaScript v3**, which Lambda's Node.js runtime includes. The **document client** (`lib-dynamodb`) lets you use plain JavaScript objects instead of typed `{"S": ...}` values. API Gateway sends each HTTP request as an event: the method is in `event.requestContext.http.method`, and the request body is a string in `event.body`.
 
-<Cmd>edit index.mjs</Cmd>
+<CodeFile name="index.mjs">
 
-Paste this into the Files tab:
-
-```
+```js
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 
@@ -50,6 +48,9 @@ export const handler = async (event) => {
   return { statusCode: 200, body: JSON.stringify(Items) };
 };
 ```
+
+</CodeFile>
+
 
 The client is created **outside** the handler, so it's set up once per copy of the function and reused by every request, not rebuilt each time. (A scan is fine for a handful of notes. Lesson C6 explains why a big table would need a better key design.)
 

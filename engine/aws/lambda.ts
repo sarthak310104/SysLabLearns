@@ -140,7 +140,21 @@ function loadModule(f: LambdaFunction, requireFn: (name: string, from: string) =
       return requireFn(name, path);
     };
     try {
-      new Function("exports", "module", "require", "process", "__filename", "__dirname", js)(exports, module, req, fakeProcess(f), `/var/task/${path}`, "/var/task");
+      const noNet = () => {
+        throw new Error("This practice Lambda can't reach the internet. Use the AWS SDK to call other services in your account.");
+      };
+      new Function("exports", "module", "require", "process", "__filename", "__dirname", "fetch", "XMLHttpRequest", "importScripts", "WebSocket", js)(
+        exports,
+        module,
+        req,
+        fakeProcess(f),
+        `/var/task/${path}`,
+        "/var/task",
+        noNet,
+        undefined,
+        noNet,
+        undefined,
+      );
     } catch (e) {
       if (e instanceof RuntimeError) throw e;
       throw new RuntimeError("Runtime.UserCodeSyntaxError", `${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`);

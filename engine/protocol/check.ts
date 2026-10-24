@@ -92,7 +92,8 @@ export function simulate(rt: Runtime, opts: SimulateOptions): SimulateResult {
 
     if (!finished) {
       // Stop the faults and give the system a fair chance to finish.
-      take({ type: "heal" });
+      const faulty = spec.network.drop > 0 || spec.network.duplicate > 0 || w.faults.crashes > 0;
+      if (faulty) take({ type: "heal" });
       if (spec.restart) for (const id of [...downSince.keys()]) take({ type: "restart", node: id });
       for (let i = 0; i < opts.healSteps && !rt.done(w); i++) {
         const next = rt.nextTimed(w);
@@ -105,9 +106,12 @@ export function simulate(rt: Runtime, opts: SimulateOptions): SimulateResult {
         const waiting = Object.entries(w.workload)
           .filter(([, wl]) => wl.current !== null || wl.pending.length)
           .map(([id, wl]) => `${id} (waiting on ${JSON.stringify(wl.current)})`);
+        const faulty = spec.network.drop > 0 || spec.network.duplicate > 0 || w.faults.crashes > 0;
         return fail(
           "Work never finishes",
-          `Even after the network stopped losing messages, some commands never completed: ${waiting.join(", ")}. A lost message or crash must be leaving something stuck.`,
+          faulty
+            ? `Even after the network stopped losing messages, some commands never completed: ${waiting.join(", ")}. A lost message or crash must be leaving something stuck.`
+            : `Some clients never got an answer: ${waiting.join(", ")}. Every message was delivered, so a reply is never being sent.`,
         );
       }
     }

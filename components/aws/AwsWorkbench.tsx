@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { awsBus } from "@/lib/awsBus";
 import type { useAwsLab } from "@/lib/useAwsLab";
 import { FilesPanel } from "./FilesPanel";
 import { ResourcesPanel } from "./ResourcesPanel";
@@ -13,6 +14,19 @@ export function AwsWorkbench({ lab }: { lab: Lab }) {
   const [tab, setTab] = useState<"resources" | "files">("resources");
   const [selected, setSelected] = useState<string | null>(null);
   const { editPath, setEditPath } = lab;
+
+  // "Save as" buttons in the lesson write the file here and open it.
+  const { writeFile, state } = lab;
+  useEffect(
+    () =>
+      awsBus.onSaveFile((name, content) => {
+        const path = `${state?.cwd ?? "/home/you"}/${name}`;
+        writeFile(path, content);
+        setSelected(path);
+        setTab("files");
+      }),
+    [writeFile, state?.cwd],
+  );
 
   // `edit file` in the terminal opens it here.
   useEffect(() => {

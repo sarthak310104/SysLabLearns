@@ -84,12 +84,31 @@ export function useAwsLab() {
       const s = (saved?.state as AwsState | undefined)?.version === 1 ? (saved!.state as AwsState) : freshState();
       historyRef.current = (saved?.history as HistoryEntry[] | undefined) ?? [];
       setHistory(historyRef.current);
+      // Show the end of the last session, so a reload doesn't lose your place.
+      const recent = historyRef.current.slice(-12);
+      if (recent.length) {
+        const restored: TermLine[] = [];
+        for (const h of recent) {
+          restored.push({ id: nextId.current++, kind: "cmd", text: h.line, cwd: s.cwd });
+          if (h.out) restored.push({ id: nextId.current++, kind: "out", text: h.out.length >= 4000 ? h.out + "\n(output shortened)\n" : h.out });
+          if (h.err) restored.push({ id: nextId.current++, kind: "err", text: h.err });
+        }
+        restored.push({ id: nextId.current++, kind: "info", text: "(Above: your last commands from before. Your resources are as you left them.)\n" });
+        setLines(restored);
+      }
       stateRef.current = s;
       setState(s);
       spawn(s);
     });
+    // Save straight away if the page is closed mid-delay.
+    const flush = () => {
+      if (saveTimer.current && stateRef.current) saveAwsAccount(stateRef.current, historyRef.current);
+    };
+    window.addEventListener("pagehide", flush);
     return () => {
       alive = false;
+      flush();
+      window.removeEventListener("pagehide", flush);
       worker.current?.terminate();
     };
   }, [spawn]);

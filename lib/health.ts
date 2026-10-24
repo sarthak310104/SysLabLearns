@@ -80,11 +80,18 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
  * Plain-words findings for the verdict panel: what's wrong and what usually
  * fixes it. Worst first.
  */
-export function findings(nodes: Record<string, NodeStats>, labels: Record<string, string>, kinds: Record<string, ComponentKind>, cutCount: number): Finding[] {
+export function findings(
+  nodes: Record<string, NodeStats>,
+  labels: Record<string, string>,
+  kinds: Record<string, ComponentKind>,
+  cutCount: number,
+  /** Components you're able to add here; advice only suggests these. */
+  canAdd: ComponentKind[] = ["server", "cache", "replica", "loadBalancer", "queue", "database", "client"],
+): Finding[] {
   const out: Finding[] = [];
   const name = (id: string) => labels[id] ?? id;
-  const hasCache = Object.values(kinds).includes("cache");
-  const hasReplica = Object.values(kinds).includes("replica");
+  const present = new Set(Object.values(kinds));
+  const addable = new Set(canAdd);
 
   for (const s of Object.values(nodes)) {
     const n = name(s.id);
@@ -106,14 +113,16 @@ export function findings(nodes: Record<string, NodeStats>, labels: Record<string
       const u = s.utilization;
       const qf = s.queueLimit ? s.queue / s.queueLimit : 0;
       if (s.errorRate > 0.05 || qf > 0.8) {
-        const fix =
-          s.kind === "server"
-            ? "Add workers or more servers behind the load balancer."
-            : !hasCache
-              ? "Put a cache in front of it, or add read replicas for reads."
-              : !hasReplica && s.kind === "database"
-                ? "Add read replicas, or raise its connections."
-                : "Raise its capacity or take load off it.";
+        let fix: string;
+        if (s.kind === "server") {
+          fix = addable.has("server") && present.has("loadBalancer") ? "Give it more workers, or add servers behind the load balancer." : "Select it and give it more workers.";
+        } else if (addable.has("cache") && !present.has("cache")) {
+          fix = "Put a cache in front of it so repeat reads skip it.";
+        } else if (addable.has("replica") && !present.has("replica") && s.kind === "database") {
+          fix = "Add read replicas to share the reads, or raise its connections.";
+        } else {
+          fix = s.kind === "replica" ? "Add another replica, or raise its connections." : "Select it and raise its connections, or take load off it.";
+        }
         out.push({ health: "failing", nodeId: s.id, text: `${n} is overloaded (${pct(u)} busy, turning away ${pct(s.errorRate)} of requests). ${fix}` });
       } else if (u > 0.85) {
         out.push({ health: "strained", nodeId: s.id, text: `${n} is ${pct(u)} busy. A small spike will start a queue; leave more headroom.` });

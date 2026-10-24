@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ContinueButton } from "@/components/ContinueButton";
 import { HeroDemo } from "@/components/HeroDemo";
 import { ProgressBackup } from "@/components/ProgressBackup";
 import { Roadmap } from "@/components/Roadmap";
@@ -18,9 +19,7 @@ export default function Home() {
             servers absorb it.
           </p>
           <div className="flex flex-wrap gap-3 mt-7">
-            <Link href="/learn/a0-foundations/" className="px-4 py-2.5 rounded-md bg-accent text-accent-ink font-medium neon">
-              Start from zero
-            </Link>
+            <ContinueButton />
             <Link href="/sandbox/" className="px-4 py-2.5 rounded-md border border-line hover:bg-panel-2">
               Open the sandbox
             </Link>

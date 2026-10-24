@@ -6,6 +6,7 @@ import { awsBus } from "@/lib/awsBus";
 function text(children: React.ReactNode): string {
   if (typeof children === "string") return children;
   if (Array.isArray(children)) return children.map(text).join("");
+  if (children && typeof children === "object" && "props" in children) return text((children as { props: { children?: React.ReactNode } }).props.children);
   return "";
 }
 
@@ -84,5 +85,35 @@ export AWS_DEFAULT_REGION=ap-south-1`}
         </div>
       )}
     </aside>
+  );
+}
+
+/** A file in the lesson: one click saves it into your practice account's home folder. */
+export function CodeFile({ name, children }: { name: string; children: React.ReactNode }) {
+  const content = text(children).replace(/^\n+/, "").replace(/\s+$/, "") + "\n";
+  const [saved, setSaved] = useState(false);
+  return (
+    <div className="my-3 rounded-md border border-line bg-bg not-prose">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-line text-[12px]">
+        <span className="font-mono text-muted">{name}</span>
+        <span className="flex-1" />
+        <button
+          className="btn-accent rounded px-2 py-0.5"
+          onClick={() => {
+            awsBus.saveFile(name, content);
+            setSaved(true);
+            setTimeout(() => setSaved(false), 1500);
+          }}
+        >
+          {saved ? "Saved" : `Save as ${name}`}
+        </button>
+        <button className="text-muted hover:text-text" onClick={() => navigator.clipboard?.writeText(content)}>
+          Copy
+        </button>
+      </div>
+      <pre className="whitespace-pre overflow-x-auto font-mono text-[12.5px] leading-relaxed m-0" style={{ padding: "8px 12px" }}>
+        {content}
+      </pre>
+    </div>
   );
 }

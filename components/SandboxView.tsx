@@ -33,9 +33,9 @@ export function SandboxView() {
 
   if (!graph) return null;
   return (
-    <div className="flex flex-col flex-1 min-h-0 h-[calc(100dvh-3rem)]">
+    <div className="flex flex-col flex-1 min-h-0 lg:h-[calc(100dvh-3rem)]">
       <div className="flex items-center gap-3 px-4 h-10 border-b border-line text-[13px]">
-        <span className="text-muted">Your design saves automatically in this browser.</span>
+        <span className="text-muted truncate">Your design saves automatically in this browser.</span>
         <button
           className="ml-auto text-muted hover:text-text"
           onClick={() => {

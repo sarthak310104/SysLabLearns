@@ -206,6 +206,8 @@ function LabInner(props: LabProps) {
 
   const canvas = (
     <div ref={wrapperRef} className="relative flex-1 min-h-[320px]" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+      {/* Fill the box absolutely: in a stacked (phone) layout it has a min-height but no fixed height. */}
+      <div className="absolute inset-0">
       <ReactFlow<LabFlowNode, Edge>
         nodes={nodes}
         edges={edges}
@@ -239,11 +241,13 @@ function LabInner(props: LabProps) {
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--grid)" />
         <Controls showInteractive={false} position="bottom-left" />
       </ReactFlow>
+      </div>
       <HealthPanel
         snapshot={sim.snapshot}
         labels={labels}
         kinds={kinds}
         defaultOpen={wide}
+        canAdd={props.palette}
         onSelect={(id) => {
           setSelectedId(id);
           setSelectedEdgeId(null);
@@ -284,13 +288,19 @@ function LabInner(props: LabProps) {
   return (
     <SnapshotContext.Provider value={sim.snapshot}>
       {wide ? (
-        <div className="flex flex-1 min-h-0">
-          <Palette kinds={props.palette} onAdd={(k) => addNode(k)} layout="column" />
-          <div className="flex flex-col flex-1 min-w-0">
+        // Three columns on a wide screen; stacked like a lesson lab on narrow ones.
+        <div className="flex flex-col lg:flex-row flex-1 min-h-0">
+          <div className="hidden lg:flex">
+            <Palette kinds={props.palette} onAdd={(k) => addNode(k)} layout="column" />
+          </div>
+          <div className="flex flex-col flex-1 min-w-0 min-h-[420px]">
             {toolbar}
+            <div className="lg:hidden">
+              <Palette kinds={props.palette} onAdd={(k) => addNode(k)} layout="row" />
+            </div>
             {canvas}
           </div>
-          <aside className="w-80 shrink-0 border-l border-line bg-panel overflow-y-auto" aria-label="Inspector">
+          <aside className="h-80 lg:h-auto lg:w-80 shrink-0 border-t lg:border-t-0 lg:border-l border-line bg-panel overflow-y-auto" aria-label="Inspector">
             {inspector}
           </aside>
         </div>

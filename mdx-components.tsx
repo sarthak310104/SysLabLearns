@@ -1,5 +1,5 @@
 import type { MDXComponents } from "mdx/types";
-import { Cmd, Floci } from "@/components/aws/Cmd";
+import { Cmd, CodeFile, Floci } from "@/components/aws/Cmd";
 import { Goals } from "@/components/lesson/Goals";
 import { Note } from "@/components/lesson/Note";
 import { Quiz } from "@/components/lesson/Quiz";
@@ -30,5 +30,5 @@ const explorables = {
 };
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
-  return { ...components, Goals, Note, Quiz, Cmd, Floci, ...explorables };
+  return { ...components, Goals, Note, Quiz, Cmd, CodeFile, Floci, ...explorables };
 }

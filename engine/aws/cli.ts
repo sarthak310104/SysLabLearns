@@ -42,6 +42,21 @@ export class Call {
 
   /** The API operation name, e.g. create-bucket -> CreateBucket. */
   get operation(): string {
+    // The friendly `aws s3` commands report the API call they make underneath.
+    if (this.service === "s3") {
+      const [a = "", b = ""] = this.positionals;
+      const remote = (x: string) => x.startsWith("s3://");
+      const op: Record<string, string> = {
+        ls: a ? "ListObjectsV2" : "ListBuckets",
+        mb: "CreateBucket",
+        rb: "DeleteBucket",
+        rm: "DeleteObject",
+        cp: remote(a) && !remote(b) ? "GetObject" : remote(a) && remote(b) ? "CopyObject" : "PutObject",
+        mv: remote(a) && !remote(b) ? "GetObject" : "PutObject",
+        sync: "PutObject",
+      };
+      if (op[this.command]) return op[this.command];
+    }
     return this.command
       .split("-")
       .map((w) => w[0].toUpperCase() + w.slice(1))

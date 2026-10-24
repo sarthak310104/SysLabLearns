@@ -38,6 +38,8 @@ export function Workbench({ lab, passed, onStagePassed }: { lab: ProtocolLab; pa
     startAt: 0,
   });
   const [runLoading, setRunLoading] = useState(false);
+  /** The code the frames in the Run tab came from. */
+  const [runCode, setRunCode] = useState<string | null>(null);
   const [stages, setStages] = useState<Record<string, StageState>>({});
   const [trace, setTrace] = useState<{ stage: string; frames: Frame[] } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,6 +67,7 @@ export function Workbench({ lab, passed, onStagePassed }: { lab: ProtocolLab; pa
   const doTrace = useCallback(
     async (req: TraceRequest, jumpTo = 0) => {
       setRunLoading(true);
+      setRunCode(codeRef.current);
       const r = await worker.run({ type: "trace", lab: lab.id, code: codeRef.current, seed: req.seed, perfect: req.perfect, steps: req.steps, extend: 1500 });
       setRunLoading(false);
       if (r.type === "frames") {
@@ -76,6 +79,14 @@ export function Workbench({ lab, passed, onStagePassed }: { lab: ProtocolLab; pa
     },
     [worker, lab.id],
   );
+
+  // Opening the Run tab for the first time starts a run, so there's something to see.
+  useEffect(() => {
+    if (tab === "run" && !run.frames && !run.error && !runLoading && !worker.busy && code !== null) {
+      doTrace({ seed: 1, perfect: false, steps: [] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const startRun = () => {
     setTab("run");
@@ -171,7 +182,16 @@ export function Workbench({ lab, passed, onStagePassed }: { lab: ProtocolLab; pa
       </div>
 
       {tab === "run" && (
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 flex flex-col">
+          {run.frames && runCode !== null && runCode !== code && run.source.kind === "run" && (
+            <div className="flex items-center gap-2 px-3 py-1.5 text-[12px] border-b border-line" style={{ color: "var(--h-strained)" }}>
+              Your code changed since this run.
+              <button className="ctl text-[12px]" onClick={startRun} disabled={runLoading}>
+                Run again
+              </button>
+            </div>
+          )}
+          <div className="flex-1 min-h-0">
           <RunView
             spec={lab.spec}
             frames={run.frames}
@@ -182,6 +202,7 @@ export function Workbench({ lab, passed, onStagePassed }: { lab: ProtocolLab; pa
             onTrace={doTrace}
             startAt={run.startAt}
           />
+          </div>
         </div>
       )}
 
@@ -250,7 +271,7 @@ export function Workbench({ lab, passed, onStagePassed }: { lab: ProtocolLab; pa
                   )}
                   {trace?.stage === st.id && s?.status === "failed" && (
                     <div className="mt-3 rounded-md border border-line overflow-hidden">
-                      <TraceView key={trace.frames.length} spec={lab.spec} frames={trace.frames} onWatch={(index) => watch(st, trace.frames, index)} />
+                      <TraceView key={trace.frames.length} spec={lab.spec} frames={trace.frames} stuck={f?.name === "Work never finishes"} onWatch={(index) => watch(st, trace.frames, index)} />
                     </div>
                   )}
                 </li>

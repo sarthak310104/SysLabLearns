@@ -14,7 +14,7 @@ const SHOW_LAST = 250;
  * A failing run as a sequence diagram: one lane per node, one row per step,
  * newest at the bottom. Click a row to see the state it left behind.
  */
-export function TraceView({ spec, frames, onWatch }: { spec: ProtocolSpec; frames: Frame[]; onWatch?: (index: number) => void }) {
+export function TraceView({ spec, frames, onWatch, stuck = false }: { spec: ProtocolSpec; frames: Frame[]; onWatch?: (index: number) => void; stuck?: boolean }) {
   const [showAll, setShowAll] = useState(false);
   const [sel, setSel] = useState(frames.length - 1);
   const lanes = spec.nodes.map((n) => n.id);
@@ -46,7 +46,7 @@ export function TraceView({ spec, frames, onWatch }: { spec: ProtocolSpec; frame
     <div className="flex flex-col min-h-0">
       <div className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-muted border-b border-line">
         <span>
-          {frames.length - 1} steps. The last one breaks the rule.
+          {stuck ? `${frames.length - 1} steps, and then nothing else can happen while clients still wait.` : `${frames.length - 1} steps. The last one breaks the rule.`}
         </span>
         <span className="flex-1" />
         {first > 1 && (

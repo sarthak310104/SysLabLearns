@@ -30,11 +30,20 @@ Write the trust policy to a file, create the role, and give it `AWSLambdaBasicEx
 
 ## Step 2: the code, zipped
 
-Open an editor for the file:
+Save the handler into your home folder (it opens in the Files tab, where you can change it):
 
-<Cmd>edit index.mjs</Cmd>
+<CodeFile name="index.mjs">
 
-Paste the handler from above into the Files tab. The `.mjs` ending tells Node.js the file uses `export`; with plain `.js`, it fails to load. Lambda takes code as a **.zip** file, called the deployment package:
+```js
+export const handler = async (event) => {
+  console.log("event", event);
+  return { message: "Hello, " + (event.name ?? "world") };
+};
+```
+
+</CodeFile>
+
+The `.mjs` ending tells Node.js the file uses `export`; with plain `.js`, it fails to load. Lambda takes code as a **.zip** file, called the deployment package:
 
 <Cmd>zip function.zip index.mjs</Cmd>
 
@@ -70,7 +79,25 @@ If a function's role lacks `AWSLambdaBasicExecutionRole`, it still runs, but **w
 
 <Cmd>{`aws lambda update-function-configuration --function-name hello --environment Variables={GREETING=Namaste}`}</Cmd>
 
-Make your handler use `process.env.GREETING ?? "Hello"`, zip, and run `aws lambda update-function-code --function-name hello --zip-file fileb://function.zip` to deploy the new version.
+Now make the code read it. Save the new version, zip it again, and deploy it:
+
+<CodeFile name="index.mjs">
+
+```js
+export const handler = async (event) => {
+  console.log("event", event);
+  const greeting = process.env.GREETING ?? "Hello";
+  return { message: greeting + ", " + (event.name ?? "world") };
+};
+```
+
+</CodeFile>
+
+<Cmd>zip function.zip index.mjs</Cmd>
+
+<Cmd>aws lambda update-function-code --function-name hello --zip-file fileb://function.zip</Cmd>
+
+<Cmd>{`aws lambda invoke --function-name hello --cli-binary-format raw-in-base64-out --payload '{"name":"Asha"}' out.json && cat out.json`}</Cmd>
 
 ## Triggers: run when a message arrives
 

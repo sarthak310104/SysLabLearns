@@ -18,9 +18,9 @@ Hashing spreads *keys* evenly. It doesn't spread *traffic* evenly if some keys a
 
 Turn up **Traffic to one celebrity key**. That one key always hashes to the same shard, so that shard takes the celebrity's entire load on top of its normal share. It melts while the other shards sit half idle. The total capacity is fine; it's in the wrong place.
 
-Now try adding more shards. It doesn't help.
+Now try adding more shards. It doesn't help: the celebrity still lands on exactly one of them.
 
-<HotShardBars /> The celebrity still lands on exactly one of them.
+<HotShardBars />
 
 ## What actually helps
 

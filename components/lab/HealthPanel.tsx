@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ComponentKind, Snapshot } from "@/engine/model/types";
 import { findings, HEALTH_COLOR, verdictOf, type Verdict } from "@/lib/health";
 
@@ -28,7 +28,9 @@ export function HealthPanel({
   kinds,
   onSelect,
   defaultOpen = true,
+  canAdd,
 }: {
+  canAdd?: ComponentKind[];
   defaultOpen?: boolean;
   snapshot: Snapshot | null;
   labels: Record<string, string>;
@@ -36,14 +38,18 @@ export function HealthPanel({
   onSelect: (id: string) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  // On a phone the panel would cover the diagram, so it starts closed there.
+  useEffect(() => {
+    if (defaultOpen && window.innerWidth < 1024) setOpen(false);
+  }, [defaultOpen]);
   // Recompute at most a few times a second; snapshots arrive ten times a second.
   const tick = snapshot ? Math.floor(snapshot.time / 400) : -1;
   const { verdict, fs } = useMemo(() => {
     if (!snapshot) return { verdict: "idle" as Verdict, fs: [] };
-    const fs = findings(snapshot.nodes, labels, kinds, snapshot.cutEdges.length);
+    const fs = findings(snapshot.nodes, labels, kinds, snapshot.cutEdges.length, canAdd);
     return { verdict: verdictOf(snapshot.nodes, fs), fs };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, labels, kinds]);
+  }, [tick, labels, kinds, canAdd]);
   const v = VERDICT[verdict];
 
   return (
