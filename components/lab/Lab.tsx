@@ -22,6 +22,8 @@ import { GoalTracker, type Goal } from "@/lib/goals";
 import { useSimulation } from "@/lib/useSimulation";
 import { FlightEdge } from "./FlightEdge";
 import { HealthPanel } from "./HealthPanel";
+import { EventsMenu, ScenarioBanner } from "./EventsMenu";
+import { scenariosFor, type Scenario } from "@/lib/scenarios";
 import { Inspector, type SelectedLink } from "./Inspector";
 import { LabNode, type LabFlowNode } from "./LabNode";
 import { SnapshotContext } from "./LabContext";
@@ -49,6 +51,8 @@ export interface LabProps {
   /** Called with every snapshot, for pages that show live status outside the lab. */
   onSnapshot?: (snap: Snapshot, graph: Graph) => void;
   seed?: number;
+  /** Show the Events menu (traffic spikes, crashes, outages). */
+  events?: boolean;
 }
 
 function toFlow(graph: Graph): { nodes: LabFlowNode[]; edges: Edge[] } {
@@ -200,6 +204,24 @@ function LabInner(props: LabProps) {
     },
     [setEdges],
   );
+  const scenarios = useMemo(() => scenariosFor(graph), [graph]);
+  const restoreRef = useRef<Scenario["restore"]>([]);
+  const runScenario = useCallback(
+    (sc: Scenario) => {
+      // Undo whatever the previous scenario left behind before starting the next.
+      for (const a of restoreRef.current) sim.fault(a);
+      restoreRef.current = sc.restore;
+      sim.fault({ type: "scenario", name: sc.name, steps: sc.steps });
+    },
+    [sim],
+  );
+  const stopScenario = useCallback(() => {
+    sim.fault({ type: "scenario", name: "", steps: [] });
+    sim.fault({ type: "endScenario" });
+    for (const a of restoreRef.current) sim.fault(a);
+    restoreRef.current = [];
+  }, [sim]);
+
   const wide = props.layout === "wide";
   const labels = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n.data.label])), [nodes]);
   const kinds = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n.data.kind])) as Record<string, ComponentKind>, [nodes]);
@@ -242,6 +264,9 @@ function LabInner(props: LabProps) {
         <Controls showInteractive={false} position="bottom-left" />
       </ReactFlow>
       </div>
+      {sim.snapshot?.scenario && (
+        <ScenarioBanner name={sim.snapshot.scenario.name} remainingMs={sim.snapshot.scenario.remainingMs} loadFactor={sim.snapshot.loadFactor ?? 1} onStop={stopScenario} />
+      )}
       <HealthPanel
         snapshot={sim.snapshot}
         labels={labels}
@@ -275,6 +300,7 @@ function LabInner(props: LabProps) {
 
   const toolbar = (
     <Toolbar
+      extra={props.events ? <EventsMenu scenarios={scenarios} onRun={runScenario} disabled={!sim.playing} /> : undefined}
       playing={sim.playing}
       speed={sim.speed}
       time={sim.snapshot?.time ?? 0}

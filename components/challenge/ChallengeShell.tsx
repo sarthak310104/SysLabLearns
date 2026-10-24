@@ -141,6 +141,7 @@ export function ChallengeShell({ slug }: { slug: string }) {
         <section className="flex-1 flex flex-col min-h-[640px] lg:h-[calc(100dvh-3rem)]" aria-label="Lab">
           {loaded && (
             <Lab
+              events
               key={labKey}
               graph={ch.graph}
               palette={ch.palette}

@@ -80,7 +80,8 @@ type Ev =
   | { k: "apply"; node: string }
   | { k: "tick"; node: string }
   | { k: "scale"; node: string }
-  | { k: "syncTimeout"; frame: Frame };
+  | { k: "syncTimeout"; frame: Frame }
+  | { k: "fault"; action: FaultAction; scenario: number };
 
 const STATUS_RANK: Record<NodeStatus, number> = { idle: 0, ok: 1, warning: 2, critical: 3, down: 4 };
 const SYNC_TIMEOUT_MS = 500;
@@ -234,10 +235,10 @@ class ClientRuntime extends Runtime {
     const since = t - this.patternSince;
     if (pattern === "spike") {
       const phase = (since % 10000) / 1000;
-      return phase >= 6 && phase < 8 ? rps * 4 : rps;
+      return (phase >= 6 && phase < 8 ? rps * 4 : rps) * this.sim.loadFactor;
     }
-    if (pattern === "ramp") return rps * Math.min(1, since / 30000);
-    return rps;
+    if (pattern === "ramp") return rps * Math.min(1, since / 30000) * this.sim.loadFactor;
+    return rps * this.sim.loadFactor;
   }
 
   onConfigChange(): void {
@@ -1272,6 +1273,11 @@ export class Simulation {
         if (rt instanceof QueueRuntime) rt.tick();
         return;
       }
+      case "fault": {
+        // Steps from a scenario that was since cancelled or replaced are dropped.
+        if (ev.scenario === this.scenarioId) this.applyFault(ev.action);
+        return;
+      }
       case "syncTimeout": {
         const rt = this.runtimes.get(ev.frame.node);
         if (rt instanceof PoolRuntime) rt.onSyncTimeout(ev.frame);
@@ -1300,7 +1306,35 @@ export class Simulation {
     rt.onConfigChange();
   }
 
+  /** Traffic multiplier set by scenarios. */
+  loadFactor = 1;
+  private scenarioId = 0;
+  private scenarioName: string | null = null;
+  private scenarioEnds = 0;
+
   applyFault(action: FaultAction): void {
+    if (action.type === "load") {
+      const before = this.loadFactor;
+      this.loadFactor = Math.max(0, action.factor);
+      if (this.loadFactor !== before) {
+        const first = [...this.runtimes.values()].find((r) => r.kind === "client");
+        if (first) this.pushIncident(first.id, this.loadFactor > 1 ? "warning" : "info", this.loadFactor === 1 ? "Traffic is back to normal." : `Traffic is now ${this.loadFactor}x normal.`);
+      }
+      return;
+    }
+    if (action.type === "scenario") {
+      this.scenarioId++;
+      this.scenarioName = action.name;
+      const last = Math.max(0, ...action.steps.map((st) => st.afterMs));
+      this.scenarioEnds = this.now + last;
+      for (const st of action.steps) this.queue.push(this.now + st.afterMs, { k: "fault", action: st.action, scenario: this.scenarioId });
+      this.queue.push(this.now + last + 1, { k: "fault", action: { type: "endScenario" }, scenario: this.scenarioId });
+      return;
+    }
+    if (action.type === "endScenario") {
+      this.scenarioName = null;
+      return;
+    }
     if (action.type === "cut" || action.type === "heal") {
       for (const id of action.edgeIds) {
         const e = this.edges.get(id);
@@ -1395,6 +1429,8 @@ export class Simulation {
       time: this.now,
       nodes,
       edges,
+      loadFactor: this.loadFactor,
+      scenario: this.scenarioName ? { name: this.scenarioName, remainingMs: Math.max(0, this.scenarioEnds - this.now) } : null,
       flights: this.flights,
       incidents: this.incidents,
       cutEdges: [...this.cut],

@@ -194,6 +194,10 @@ export interface Snapshot {
   incidents: Incident[];
   /** Links currently cut by a network partition. */
   cutEdges: string[];
+  /** Traffic multiplier from a scenario (1 = normal). */
+  loadFactor?: number;
+  /** The scenario running now, if any. */
+  scenario?: { name: string; remainingMs: number } | null;
 }
 
 export type FaultAction =
@@ -201,4 +205,9 @@ export type FaultAction =
   | { type: "recover"; nodeId: string }
   | { type: "slow"; nodeId: string; factor: number }
   | { type: "cut"; edgeIds: string[] }
-  | { type: "heal"; edgeIds: string[] };
+  | { type: "heal"; edgeIds: string[] }
+  /** Multiply every client's traffic (1 = normal). */
+  | { type: "load"; factor: number }
+  /** A named sequence of events, each after a delay in simulated time. */
+  | { type: "scenario"; name: string; steps: { afterMs: number; action: FaultAction }[] }
+  | { type: "endScenario" };
