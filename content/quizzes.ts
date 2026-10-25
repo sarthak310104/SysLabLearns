@@ -733,6 +733,134 @@ export const QUIZZES: Record<string, Question[]> = {
       explain: "Duelling proposers never cause a wrong decision, only no decision. Random back-off or a single leader makes progress likely in practice.",
     },
   ],
+  "b5-raft": [
+    {
+      q: "Two servers both time out and start elections in term 4. What stops both of them winning?",
+      options: ["The one with the lower id wins", "Each server votes at most once per term, and a win needs a majority; two majorities share a server", "Leaders check with each other first", "Nothing: Raft allows two leaders and fixes it later"],
+      answer: 1,
+      explain: "Any two majorities of three servers overlap, and the shared server only votes once in term 4, so only one candidate can collect a majority.",
+    },
+    {
+      q: "Why does a server refuse to vote for a candidate whose log is behind its own?",
+      options: ["To make elections faster", "So a new leader always has every committed entry: every majority includes someone who has them", "Because shorter logs are invalid", "To save network traffic"],
+      answer: 1,
+      explain: "A committed entry is on a majority. A candidate needs votes from a majority, which includes at least one of those servers, and that server refuses unless the candidate is at least as up to date.",
+    },
+    {
+      q: "A follower receives appendEntries whose prevLogIndex is 7, but its log only has 5 entries. What should it do?",
+      options: ["Append the entries at position 6", "Reply success: false, so the leader retries from an earlier point", "Become a candidate", "Ignore the leader from now on"],
+      answer: 1,
+      explain: "The entries only make sense right after entry 7. The follower is missing entries 6 and 7, so it refuses and the leader steps back until the logs match.",
+    },
+    {
+      q: "Which state must a Raft server write to disk before replying to anyone?",
+      options: ["commitIndex and lastApplied", "currentTerm, votedFor and the log", "Only the log", "Nothing: other servers have copies"],
+      answer: 1,
+      explain: "Forgetting votedFor allows a second vote in the same term; forgetting the log can lose committed entries; forgetting the term lets a stale leader back in. The rest can be rebuilt by replaying the log.",
+    },
+    {
+      q: "A leader sees a message with a higher term than its own. What does it do?",
+      options: ["Ignores it: leaders outrank everyone", "Adopts the higher term and becomes a follower", "Starts a new election immediately", "Crashes"],
+      answer: 1,
+      explain: "A higher term means a newer election happened. The old leader's term is over, so it steps down.",
+    },
+  ],
+  "b6-shardkv": [
+    {
+      q: "Configuration 4 moves shard 2 from g1 to g3. When should g3 start answering requests for shard 2?",
+      options: ["As soon as it sees configuration 4", "Only once it has received shard 2's data (and duplicate table) from g1", "When the controller tells it to", "Never: clients must go to g1"],
+      answer: 1,
+      explain: "Until the data arrives, g3 would be answering from an empty shard, and every earlier append would seem to vanish.",
+    },
+    {
+      q: "Why does the duplicate table move along with the shard's data?",
+      options: ["To save memory on the old group", "A client whose request g1 applied, but whose reply was lost, retries at g3, which must recognize it", "The controller needs it", "It doesn't need to"],
+      answer: 1,
+      explain: "Without the table, g3 would apply the retried append a second time.",
+    },
+    {
+      q: "A repeated handoff message arrives at g3 after shard 2 has already taken new appends. What should g3 do?",
+      options: ["Install it again to be safe", "Acknowledge it, but not install it: it isn't waiting for that shard any more", "Reject it and ask the controller", "Forward it to g1"],
+      answer: 1,
+      explain: "Installing the old copy would overwrite the newer appends. Acknowledging stops g1 resending it.",
+    },
+    {
+      q: "Why must a group finish configuration n's handoffs before moving to n + 1?",
+      options: ["The controller requires it", "Skipping ahead can leave a shard with no owner holding its data, or two groups serving it", "It saves time", "Configurations expire"],
+      answer: 1,
+      explain: "Each handoff is described relative to the previous configuration. Jumping ahead breaks the chain of who has the data.",
+    },
+    {
+      q: "In a real system, what would each group be instead of one server?",
+      options: ["A cache", "A replicated group running consensus (like Raft), so a group survives crashes", "A load balancer", "A single bigger server"],
+      answer: 1,
+      explain: "Sharding gives scale; replicating each shard gives fault tolerance. Real systems do both.",
+    },
+  ],
+  "b7-2pc": [
+    {
+      q: "Bank B votes yes and Bank A votes no. What does the coordinator decide?",
+      options: ["Commit at B only", "Abort: commit needs every participant's yes", "Wait for A to change its mind", "Commit, since one bank agreed"],
+      answer: 1,
+      explain: "All or nothing: a single no means the transaction can't happen everywhere, so it happens nowhere.",
+    },
+    {
+      q: "A bank voted yes and hasn't heard the decision for a long time. What may it do?",
+      options: ["Abort, since it's been too long", "Commit, since it said yes", "Keep waiting (and asking): it can't know what the other bank voted or what was decided", "Ask the client"],
+      answer: 2,
+      explain: "A yes vote is a promise to follow the coordinator. Deciding alone could disagree with the other bank. This is why 2PC can block.",
+    },
+    {
+      q: "When must the coordinator write its decision to disk?",
+      options: ["After all banks acknowledge it", "Before telling anyone", "Only if it decided commit", "Never: banks keep copies"],
+      answer: 1,
+      explain: "If it crashes after one bank heard commit but before writing it down, it would later answer abort to the other bank.",
+    },
+    {
+      q: "After a restart, the coordinator is asked about a transaction it has no record of. What's a safe answer?",
+      options: ["Commit", "Abort, because a commit would have been written down before being sent", "Ignore the question", "Ask the client to resend"],
+      answer: 1,
+      explain: "Commit decisions are stored before anyone hears them, so no record means it never committed. That's called presumed abort.",
+    },
+    {
+      q: "Why is plain two-phase commit called a blocking protocol?",
+      options: ["It locks the whole database", "If the coordinator is down, participants that voted yes must wait, holding their resources", "It only handles one transaction at a time", "It needs a majority"],
+      answer: 1,
+      explain: "Prepared participants can't decide alone. Real systems replicate the coordinator (with Raft or Paxos) to shrink this window.",
+    },
+  ],
+  "b8-crdt": [
+    {
+      q: "Two replicas' counters say 5 and 7. Why is adding them (12) a bad merge?",
+      options: ["It's too slow", "Updates both replicas already knew get counted twice, and gossip repeats all the time", "Counters can't go above 10", "It's fine"],
+      answer: 1,
+      explain: "Merge must be idempotent: merging the same information again must change nothing. Adding isn't.",
+    },
+    {
+      q: "Why does a PN-counter keep a separate count for each replica?",
+      options: ["To show who's most active", "Each replica only raises its own count, so the larger of two values is always the newer one, and taking the max never double counts", "To save space", "Because decrements need it"],
+      answer: 1,
+      explain: "Per-replica counts turn merge into taking the maximum of each, which is commutative, associative and idempotent.",
+    },
+    {
+      q: "r1 removes \"milk\" while r3 still has an older state with milk in it. With union as the merge, what happens?",
+      options: ["Milk stays removed", "Milk comes back when r3's state arrives", "The merge fails", "r3 deletes milk too"],
+      answer: 1,
+      explain: "A union can't tell \"removed\" from \"never heard of\". The removal has to be remembered in the state.",
+    },
+    {
+      q: "In an OR-set, r1 removes milk while r2 adds milk at the same time. What's the final set?",
+      options: ["Without milk: removes win", "With milk: the remove only removed the tags it had seen, and r2's add has a new tag", "It depends on which message arrives first", "Both replicas keep different answers"],
+      answer: 1,
+      explain: "Observed-remove means a remove can't cancel an add it never saw, so concurrent adds win, on every replica.",
+    },
+    {
+      q: "Which of these is a poor fit for a CRDT on its own?",
+      options: ["A like counter", "A shopping cart", "A bank balance that must never go below zero", "The set of devices on an account"],
+      answer: 2,
+      explain: "Preventing an overdraft needs replicas to coordinate before accepting a withdrawal. CRDTs accept every update locally.",
+    },
+  ],
   "c1-cloud-basics": [
     {
       q: "What is an AWS region?",

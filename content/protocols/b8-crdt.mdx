@@ -1,0 +1,55 @@
+Every protocol so far made machines **coordinate**: vote, wait for a leader, hold a lock, agree on an order. That's what makes them correct, and also what makes them slow and fragile: if you can't reach a majority, you can't write.
+
+Some data doesn't need that. A like counter, a shopping cart, a collaborative document, the list of devices on your account: it's fine for different replicas to accept changes on their own, even while cut off from each other, as long as they all end up in the same place once they talk again. That's **eventual consistency**, and **CRDTs** (conflict-free replicated data types) make it work automatically.
+
+Riak, Redis Enterprise, Figma's multiplayer editing, Apple Notes and collaborative editors like Automerge and Yjs all use CRDTs.
+
+## The trick is in merge
+
+Each replica applies updates locally and right away. Every so often it sends its whole state to another replica, which **merges** it in. The network repeats, delays and reorders these messages, so merge has to give the same answer no matter what. In maths terms it must be:
+
+- **commutative**: merge(a, b) = merge(b, a), so order doesn't matter;
+- **associative**: how you group merges doesn't matter;
+- **idempotent**: merge(a, a) = a, so a repeated message changes nothing.
+
+Design the state so that merge has those properties, and replicas that have heard the same updates always agree, with no coordination at all.
+
+## A counter
+
+The obvious counter is one number. But how do you merge 5 and 7? Adding gives 12, and counts everything both replicas already knew twice (and gossip repeats itself constantly). Taking the larger, 7, loses whichever increments happened only on the other replica.
+
+The fix is to keep **one count per replica**. Replica r2 only ever raises its own count, so when two states disagree about r2's count, the larger one is simply newer. Merge takes the larger of each, and the value is the sum. Decrements get their own per-replica counts, subtracted at the end. That's a **PN-counter** (positive-negative).
+
+## A set
+
+A set is harder, because removes and adds can race. Suppose r1 removes "milk" while r3 still has an older state containing it. When r3's state arrives, a plain union puts milk straight back. Merge can't tell "removed" from "never heard of it".
+
+So remember the removal. But which "milk" did you remove? If r2 adds milk again at the same moment r1 removes it, which wins? This lab uses the most common rule: **the add wins**, because the remove never saw it.
+
+That gives the **OR-set** (observed-remove set):
+
+- every add gets a unique **tag** (the lab hands you one, like `"r2-5"`);
+- a remove marks the tags it can *see* for that item as removed;
+- merge keeps every add and every removal from both sides;
+- an item is in the set if any of its tags hasn't been removed.
+
+A concurrent add has a tag the remove never saw, so it survives. A removal travels with the state, so the item can't sneak back.
+
+## The lab
+
+You write two data types, `counter` and `set`. Each has `init`, its updates, `value` and `merge`. The lab runs three replicas that gossip with each other over a network that loses and repeats messages. It also runs a correct version alongside yours with exactly the same updates and merges, and after every step checks that each replica's value matches what it should be from everything that replica has heard.
+
+<Note>
+CRDTs trade away something real: there's no moment when every replica agrees, and some operations can't be expressed at all (a bank balance that must never go below zero needs coordination, which is what B7 was for). The skill is knowing which data can live with "eventually".
+</Note>
+
+<Goals />
+
+## What to remember
+
+- Replicas update locally and merge later; merge must be commutative, associative and idempotent.
+- Keep information per replica (counts, tags) so merge can take the newest, never add things twice.
+- Removals have to be remembered, or merging brings removed items back.
+- The OR-set decides races in favour of the add: a remove only removes what it saw.
+
+<Quiz />

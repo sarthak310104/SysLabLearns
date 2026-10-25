@@ -5,6 +5,10 @@ import { B1, B1_STARTER } from "./b1";
 import { B2, B2_STARTER } from "./b2";
 import { B3, B3_STARTER } from "./b3";
 import { B4, B4_STARTER } from "./b4";
+import { B5, B5_STARTER } from "./b5";
+import { B6, B6_STARTER } from "./b6";
+import { B7, B7_STARTER } from "./b7";
+import { B8, B8_STARTER } from "./b8";
 
 /**
  * A stage is one test the learner's code has to pass. Stages build on each
@@ -22,6 +26,8 @@ export interface Stage {
   network?: Partial<NetworkConfig>;
   sim?: Partial<SimulateOptions>;
   check?: CheckOptions;
+  /** Other changes to the lab for this stage (for example a smaller workload for the model checker). */
+  spec?: Partial<ProtocolSpec>;
 }
 
 export interface ProtocolLab {
@@ -171,6 +177,167 @@ export const LABS: ProtocolLab[] = [
       },
     ],
   },
+  {
+    id: B5.id,
+    slug: "b5-raft",
+    spec: B5,
+    starter: B5_STARTER,
+    stages: [
+      {
+        id: "elect",
+        title: "One leader per term",
+        blurb: "60 runs on a network that loses nothing. Servers time out, hold elections, and must never end up with two leaders in the same term.",
+        hints: [
+          "Two candidates can start an election in the same term. What stops a server voting for both of them?",
+          "Raft keeps votedFor: grant a vote only if you haven't voted this term (votedFor is null) or already voted for this same candidate. Also refuse candidates whose log is behind yours.",
+          "const myLastTerm = s.log.length ? s.log[s.log.length - 1].term : 0;\nconst upToDate = msg.lastLogTerm > myLastTerm ||\n  (msg.lastLogTerm === myLastTerm && msg.lastLogIndex >= s.log.length);\nconst grant = msg.term === s.currentTerm &&\n  (s.votedFor === null || s.votedFor === from) && upToDate;",
+        ],
+        kind: "simulate",
+        invariants: ["At most one leader per term"],
+        network: { drop: 0, duplicate: 0 },
+        sim: { runs: 60, maxSteps: 3000, healSteps: 6000 },
+      },
+      {
+        id: "replicate",
+        title: "Logs that agree",
+        blurb: "80 runs where messages are lost, repeated and reordered. Every committed entry must be the same on every server, and every client must get the right answer.",
+        hints: [
+          "An appendEntries can arrive late, twice, or after a newer one. What does tacking its entries onto the end of the log do then?",
+          "The leader sends prevLogIndex and prevLogTerm: the entry just before the new ones. Refuse (success: false) unless your log has that entry with that term. Then walk the new entries: if one conflicts with yours (same index, different term), cut your log there; append the ones you don't have.",
+          "if (msg.prevLogIndex > s.log.length ||\n    (msg.prevLogIndex > 0 && s.log[msg.prevLogIndex - 1].term !== msg.prevLogTerm)) {\n  ctx.send(from, { type: \"appendReply\", term: s.currentTerm, success: false, match: 0 });\n  return;\n}\nlet i = msg.prevLogIndex;\nfor (const e of msg.entries) {\n  if (s.log[i] && s.log[i].term !== e.term) s.log.length = i;\n  if (!s.log[i]) s.log.push(e);\n  i++;\n}\n// and commit only up to what this message proved:\n// Math.min(msg.leaderCommit, msg.prevLogIndex + msg.entries.length)",
+        ],
+        kind: "simulate",
+        sim: { runs: 80, maxSteps: 3000, healSteps: 6000 },
+      },
+      {
+        id: "crashes",
+        title: "Crashes and restarts",
+        blurb: "150 runs where servers crash and come back moments later with empty memory. Only what they stored on disk survives.",
+        hints: [
+          "A server that restarts remembers nothing in its state. Which of its promises could it break?",
+          "Raft's persistent state is currentTerm, votedFor and the log. Store them whenever they change (before answering anyone), and read them back in init.",
+          "// in save():\nctx.store({ currentTerm: s.currentTerm, votedFor: s.votedFor, log: s.log });\n\n// in init(), before resetElectionTimer:\nconst disk = ctx.stored();\nif (disk) {\n  s.currentTerm = disk.currentTerm;\n  s.votedFor = disk.votedFor;\n  s.log = disk.log;\n}",
+        ],
+        kind: "simulate",
+        network: { drop: 0.1 },
+        sim: { runs: 150, maxSteps: 3000, healSteps: 6000, crashChance: 0.05, restartAfter: 3 },
+      },
+    ],
+  },
+  {
+    id: B6.id,
+    slug: "b6-shardkv",
+    spec: B6,
+    starter: B6_STARTER,
+    stages: [
+      {
+        id: "handoff",
+        title: "Shards that move",
+        blurb: "40 runs on a network that loses nothing. Shards move between groups five times; no append may be lost.",
+        hints: [
+          "When a shard moves to you, where is its data right now? And what if it arrives before you've even heard about the new configuration?",
+          "The group losing a shard keeps a copy in an outgoing list and sends it (data and duplicate table) to the new owner on every poll, until the owner confirms. The new owner marks the shard pending and answers \"wrong group\" until the data arrives. Don't ask for the next configuration while anything is pending or outgoing.",
+          "// losing a shard (in the config handler):\ns.outgoing[shard] = { to: after, num: next.num, contents: s.shards[shard] };\ndelete s.shards[shard];\n\n// gaining one: before === null ? start it empty : s.pending[shard] = true;\n\n// on the poll timer:\nfor (const [shard, o] of Object.entries(s.outgoing))\n  ctx.send(o.to, { type: \"shard\", shard: Number(shard), num: o.num, contents: o.contents });\nif (!Object.keys(s.pending).length && !Object.keys(s.outgoing).length)\n  ctx.send(\"ctrl\", { type: \"query\", num: s.config.num + 1 });\n\n// receiving { type: \"shard\" }:\nif (msg.num === s.config.num && s.pending[msg.shard]) {\n  s.shards[msg.shard] = msg.contents;\n  delete s.pending[msg.shard];\n}\nif (msg.num <= s.config.num) ctx.send(from, { type: \"shardOk\", shard: msg.shard, num: msg.num });\n\n// receiving shardOk with the same num: delete s.outgoing[msg.shard]",
+        ],
+        kind: "simulate",
+        network: { drop: 0, duplicate: 0 },
+        sim: { runs: 40, maxSteps: 4000, healSteps: 8000 },
+      },
+      {
+        id: "lossy",
+        title: "Handoffs on a bad network",
+        blurb: "80 runs where handoff messages are lost, repeated and reordered. Every shard still has to arrive exactly once, and every client has to finish.",
+        hints: [
+          "A repeated handoff can arrive long after the first one, when the shard has already taken new appends.",
+          "Install a shard only if you're still waiting for it, in that exact configuration number. Acknowledge any copy for a configuration you've reached, so the sender stops resending, but don't install it twice.",
+          "if (msg.type === \"shard\") {\n  if (msg.num === s.config.num && s.pending[msg.shard]) {\n    s.shards[msg.shard] = msg.contents;\n    delete s.pending[msg.shard];\n  }\n  if (msg.num <= s.config.num) ctx.send(from, { type: \"shardOk\", shard: msg.shard, num: msg.num });\n}",
+        ],
+        kind: "simulate",
+        sim: { runs: 80, maxSteps: 4000, healSteps: 8000 },
+      },
+    ],
+  },
+  {
+    id: B7.id,
+    slug: "b7-2pc",
+    spec: B7,
+    starter: B7_STARTER,
+    stages: [
+      {
+        id: "agree",
+        title: "All or nothing",
+        blurb: "40 runs on a network that loses nothing. Some transfers bounce; both banks must always agree on every transfer.",
+        hints: [
+          "A transfer bounces when the paying bank votes no. What if the other bank's yes arrives first?",
+          "Record each vote. Abort as soon as any bank votes no; commit only once every bank has voted yes.",
+          "if (!msg.yes) decide(s, msg.id, \"abort\", ctx);\nelse if (BANKS.every((b) => tx.votes[b] === true)) decide(s, msg.id, \"commit\", ctx);",
+        ],
+        kind: "simulate",
+        network: { drop: 0, duplicate: 0 },
+        sim: { runs: 40, maxSteps: 3000, healSteps: 6000 },
+      },
+      {
+        id: "lossy",
+        title: "Waiting it out",
+        blurb: "80 runs where a third of messages are lost. Decisions take a while to arrive, and banks must still agree.",
+        hints: [
+          "When a bank that voted yes stops waiting and aborts, what might the other bank be doing?",
+          "After voting yes, a bank has promised to do whatever the coordinator decides. It can keep asking (the starter already sends status), but it must never abort on its own.",
+          "Delete the line in the participant's onTimer that calls finish(s, id, \"abort\") after waiting. Keep the status request.",
+        ],
+        kind: "simulate",
+        network: { drop: 0.3, duplicate: 0.1 },
+        sim: { runs: 80, maxSteps: 3000, healSteps: 6000 },
+      },
+      {
+        id: "crashes",
+        title: "The coordinator crashes",
+        blurb: "100 runs where the coordinator crashes and restarts with empty memory. Its disk survives.",
+        hints: [
+          "The coordinator decides commit, one bank hears it, and the coordinator crashes. After restarting, what does it tell the other bank when asked?",
+          "Write the decisions to disk with ctx.store before sending them to anyone, and read them back in init. If a bank asks about a transfer the coordinator knows nothing about, it never decided commit, so answer abort and remember that.",
+          "// in decide(), first:\nctx.store({ decisions: s.decisions });\n\n// in init():\nconst s = { txs: {}, decisions: ctx.stored()?.decisions ?? {} };",
+        ],
+        kind: "simulate",
+        network: { drop: 0.2 },
+        sim: { runs: 100, maxSteps: 3000, healSteps: 6000, crashChance: 0.03, restartAfter: 10 },
+      },
+    ],
+  },
+  {
+    id: B8.id,
+    slug: "b8-crdt",
+    spec: B8,
+    starter: B8_STARTER,
+    stages: [
+      {
+        id: "counter",
+        title: "A counter that merges",
+        blurb: "60 runs. Each replica's counter must always equal the increments minus decrements it has heard about, however gossip arrives.",
+        hints: [
+          "Merge gets called again and again with mostly the same information. What does adding do to updates both states already contain?",
+          "Keep a separate count for each replica (increments and decrements apart). A replica only ever raises its own counts, so when two states meet, the larger of each count is the newest. The value is the sum of increments minus the sum of decrements.",
+          "init: () => ({ p: {}, n: {} }),\nincrement(s, r) { s.p[r] = (s.p[r] ?? 0) + 1; },\ndecrement(s, r) { s.n[r] = (s.n[r] ?? 0) + 1; },\nvalue: (s) => sum(s.p) - sum(s.n),\nmerge(a, b) {\n  const max = (x, y) => { const o = { ...x }; for (const k in y) o[k] = Math.max(o[k] ?? 0, y[k]); return o; };\n  return { p: max(a.p, b.p), n: max(a.n, b.n) };\n},",
+        ],
+        kind: "simulate",
+        invariants: ["The counter is right"],
+        sim: { runs: 60, maxSteps: 3000, healSteps: 6000 },
+      },
+      {
+        id: "set",
+        title: "A set where adds win",
+        blurb: "60 runs. Items are added and removed on different replicas at the same time; every replica's set must match what it has heard about.",
+        hints: [
+          "After a remove, an older state still has the item. When that state arrives, how can merge tell \"removed\" from \"never heard of it\"?",
+          "Give every add its tag (the lab passes one in). A remove marks the tags it can see for that item as removed. Merge keeps every add and every removal from both sides. An item is in the set if any of its tags isn't removed, so an add the remove never saw survives.",
+          "init: () => ({ adds: {}, removed: {} }),\nadd(s, item, tag) { s.adds[tag] = item; },\nremove(s, item) {\n  for (const tag in s.adds) if (s.adds[tag] === item) s.removed[tag] = true;\n},\nvalue: (s) => [...new Set(Object.keys(s.adds)\n  .filter((t) => !s.removed[t]).map((t) => s.adds[t]))].sort(),\nmerge: (a, b) => ({ adds: { ...a.adds, ...b.adds }, removed: { ...a.removed, ...b.removed } }),",
+        ],
+        kind: "simulate",
+        invariants: ["The set is right"],
+        sim: { runs: 60, maxSteps: 3000, healSteps: 6000 },
+      },
+    ],
+  },
 ];
 
 export const labById = (id: string) => LABS.find((l) => l.id === id);
@@ -178,6 +345,6 @@ export const labBySlug = (slug: string) => LABS.find((l) => l.slug === slug);
 
 /** The spec a stage runs against (some stages change the network). */
 export function stageSpec(lab: ProtocolLab, stage: Stage | null): ProtocolSpec {
-  if (!stage?.network) return lab.spec;
-  return { ...lab.spec, network: { ...lab.spec.network, ...stage.network } };
+  if (!stage?.network && !stage?.spec) return lab.spec;
+  return { ...lab.spec, ...stage.spec, network: { ...lab.spec.network, ...stage.network } };
 }

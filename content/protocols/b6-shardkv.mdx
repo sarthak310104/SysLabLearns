@@ -1,0 +1,40 @@
+Everything so far kept all the data on one group of machines. That stops working when the data, or the traffic, outgrows what one group can hold. The answer is **sharding**: split the keys into pieces called **shards**, and give each shard to a different group. Five groups can serve roughly five times the traffic of one.
+
+DynamoDB, Cassandra, MongoDB, Spanner and CockroachDB all do this. The hard part isn't splitting the keys. It's **moving** shards while the system runs: adding a group, rebalancing hot shards, or retiring a machine, without losing a single write.
+
+## The pieces
+
+- **Shards**: here, keys are split into 4 shards by their last digit, so `a2` and `b2` both live in shard 2. (Real systems hash the key, or split it into ranges.)
+- **Groups**: `g1`, `g2` and `g3` each serve some shards. In a real system each group would be a Raft group from B5, so it survives crashes. Here each group is one server, so you can focus on moving shards.
+- **The shard controller**: a separate service that decides who owns what. It publishes numbered **configurations**: `{ num: 3, shards: ["g1", "g3", "g2", "g1"] }` means shard 0 is on g1, shard 1 on g3, and so on. In this lab it moves through six configurations as time passes.
+
+Clients ask the controller which group owns a key's shard, send the request there, and if the group says "wrong group", ask the controller again and retry.
+
+## Moving a shard
+
+When configuration 3 moves shard 1 from g1 to g3:
+
+1. **g1** must stop serving shard 1 as soon as it adopts configuration 3. Any append it accepted after that would be lost, because g3 is about to become the owner.
+2. **g1** sends shard 1's data to g3, and keeps sending until g3 confirms. The network loses messages, and if this one is lost, the shard is gone.
+3. **g3** must not serve shard 1 until the data arrives. If it answered right away, it would start from an empty shard, and every earlier append would vanish from what clients see.
+4. The **duplicate table** moves with the data. A client whose request was applied by g1, but whose reply was lost, will retry at g3, and g3 must recognize it and send back the saved answer, not apply it again.
+
+Two more rules hold the whole thing together:
+
+- **One configuration at a time.** A group finishes every handoff from configuration n before it moves to n + 1. Skipping ahead can leave a shard with two owners, or none.
+- **Never install a shard twice.** A repeated or late handoff message can arrive after the shard has taken new appends. Install a shard only if you're waiting for it, in exactly that configuration. Otherwise just acknowledge it.
+
+## The lab
+
+Write the group `server`. The starter processes configurations in order and serves requests with duplicate detection. But when it gains a shard it starts it empty, and when it loses one it throws the data away. Watch the Run tab: the controller logs each new configuration, and you can follow a shard's data from one group to the next.
+
+<Goals />
+
+## What to remember
+
+- Sharding spreads keys across groups; a controller decides which group owns which shard, in numbered configurations.
+- The old owner stops serving at once and hands the data over, retrying until it's confirmed.
+- The new owner waits for the data, and the duplicate table travels with it.
+- Process configurations one at a time, and only install a shard you're expecting.
+
+<Quiz />

@@ -27,6 +27,10 @@ export interface Ctx {
   log(text: string): void;
   /** For client roles: finish the current command with this result. */
   reply(value: unknown): void;
+  /** Write to this node's disk. Unlike state, the disk survives a crash and restart. */
+  store(value: unknown): void;
+  /** What was last written with store(), or null. Read it in init to recover after a restart. */
+  stored(): any;
 }
 
 /** A role's handlers. Return a new state, or change `state` in place and return nothing. */
@@ -58,6 +62,8 @@ export interface NodeRec {
   role: string;
   state: unknown;
   crashed: boolean;
+  /** What the node wrote with ctx.store(): kept across crashes. */
+  disk?: unknown;
 }
 
 export interface HistoryEvent {

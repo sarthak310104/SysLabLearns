@@ -305,6 +305,12 @@ export function RunView({ spec, frames, steps, source, loading, error, onTrace, 
                 )}
               </div>
               <pre className="mt-2 text-[12px] font-mono whitespace-pre-wrap break-words text-muted">{JSON.stringify(selRec.state, null, 2)}</pre>
+              {selRec.disk !== undefined && (
+                <>
+                  <p className="text-[12px] mt-2">On disk (survives a crash):</p>
+                  <pre className="text-[12px] font-mono whitespace-pre-wrap break-words text-muted">{JSON.stringify(selRec.disk, null, 2)}</pre>
+                </>
+              )}
               {w.logs.filter((l) => l.node === selected).length > 0 && (
                 <ul className="mt-2 text-[12px] space-y-0.5">
                   {w.logs

@@ -1,0 +1,49 @@
+Sharding (B6) splits data across groups. Sooner or later one operation needs to change data in two of them at once. Moving 30 from Alice's account at Bank A to Bob's at Bank B means a debit at A and a credit at B. If only one happens, money appears from nowhere or vanishes. Both must happen, or neither. That's an **atomic** transaction across machines, and the classic way to get one is **two-phase commit** (2PC).
+
+Distributed databases like Spanner and CockroachDB commit cross-shard transactions with versions of it, and so do systems that coordinate a database and a message queue (XA transactions).
+
+## The two phases
+
+A **coordinator** runs each transaction. The machines that hold the data are **participants**.
+
+**Phase 1, prepare.** The coordinator sends the transaction to every participant and asks: *can you do your part?* Each participant checks (does Alice have 30?) and votes:
+
+- **yes**: "I can, and I promise to do it if you say so." It sets the money aside (holds it), so no other transfer can spend it in the meantime.
+- **no**: "I can't." It forgets the transaction.
+
+**Phase 2, decide.** If every participant voted yes, the coordinator decides **commit**. If any voted no (or didn't answer), it decides **abort**. It tells every participant, and the client.
+
+The whole protocol hangs on one word in phase 1: **promise**. A participant that voted yes has given up the right to decide alone. It can't commit (the other bank may have voted no). It can't abort (the coordinator may have already decided commit, and the other bank may have applied it). It must wait for the coordinator's decision, however long that takes.
+
+## The decision is the commit point
+
+The transaction commits at the moment the coordinator decides commit, not when anyone hears about it. So the coordinator must make the decision **durable** first: write it to disk (`ctx.store` in the lab) *before* sending it to anyone.
+
+Here's why. The coordinator decides commit, Bank A hears it and moves the money, then the coordinator crashes before Bank B hears it. When it comes back, B asks "what happened to t1?". With the decision on disk, it answers "commit". Without it, it has no record, assumes the transfer never happened, and answers "abort". Now A has committed and B has aborted, and the money is wrong forever.
+
+If the coordinator really has no record of a transaction, it never decided commit (because it would have written that down first). So "abort" is a safe answer, and it should write that down too.
+
+## Blocking
+
+2PC is safe, but it can **block**. If the coordinator crashes after a participant voted yes, that participant is stuck holding money until the coordinator comes back. It can't ask the other participant to decide, because the other one doesn't know either. This is 2PC's famous weakness. Real systems make the coordinator itself a replicated group (a Raft group from B5), so "the coordinator crashed" becomes "the coordinator's leader changed", and the decision survives.
+
+## The lab
+
+Write the `coordinator` and the `participant` (both banks run the same code). The starter has the whole protocol, including holds, resends and status checks, with three bugs marked TODO:
+
+- the coordinator decides too early;
+- a bank that voted yes gives up waiting and aborts on its own;
+- decisions aren't written to disk, so a crash erases them.
+
+Each client sends four transfers, and the third one bounces because the money isn't there.
+
+<Goals />
+
+## What to remember
+
+- Phase 1 collects promises; phase 2 announces a decision that was made, and stored, by one machine.
+- Commit needs every yes. Abort needs only one no.
+- A yes vote is a promise: after it, the participant waits for the decision, however long.
+- Store the decision before anyone hears it. A coordinator with no record of a transaction can safely say abort.
+
+<Quiz />

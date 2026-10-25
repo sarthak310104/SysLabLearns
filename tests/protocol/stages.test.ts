@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LABS } from "@/content/protocols";
 import { runStage } from "@/engine/protocol/stages";
-import { B0_SHARED_COUNT, B0_SOLUTION, B0_STAGE1, B1_SOLUTION, B2_SOLUTION, B3_SOLUTION, B4_SOLUTION } from "./solutions";
+import { B0_SHARED_COUNT, B0_SOLUTION, B0_STAGE1, B1_SOLUTION, B2_SOLUTION, B3_SOLUTION, B4_SOLUTION, B5_SOLUTION, B6_SOLUTION, B7_SOLUTION, B8_SOLUTION } from "./solutions";
 
 const SOLUTIONS: Record<string, string> = {
   "b0-foundations": B0_SOLUTION,
@@ -9,6 +9,10 @@ const SOLUTIONS: Record<string, string> = {
   "b2-rpc": B2_SOLUTION,
   "b3-primary-backup": B3_SOLUTION,
   "b4-paxos": B4_SOLUTION,
+  "b5-raft": B5_SOLUTION,
+  "b6-shardkv": B6_SOLUTION,
+  "b7-2pc": B7_SOLUTION,
+  "b8-crdt": B8_SOLUTION,
 };
 
 describe("lab stages, as the workbench runs them", () => {

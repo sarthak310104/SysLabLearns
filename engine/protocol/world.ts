@@ -89,6 +89,10 @@ export class Runtime {
         if (w.mode === "explore") return; // logs aren't part of the state, so a search skips them
         w.logs = [...w.logs, { t: w.clock, node: self, text: String(text) }].slice(-MAX_LOGS);
       },
+      store: (value) => {
+        w.nodes[self] = { ...w.nodes[self], disk: plain(value, `${self} store()`) };
+      },
+      stored: () => clone(w.nodes[self].disk ?? null),
       reply: (value) => {
         const wl = w.workload[self];
         if (!wl || wl.current === null) return; // nothing to reply to: ignore duplicates
@@ -114,6 +118,8 @@ export class Runtime {
       else if (out !== undefined) rec.state = out;
       // Keep state as plain data: this also catches functions or cycles early.
       rec.state = plain(rec.state, `${node} (${rec.role})`);
+      // store() swaps in a new record carrying the disk; keep the state on it.
+      if (w.nodes[node] !== rec) w.nodes[node] = { ...w.nodes[node], state: rec.state };
     } catch (e) {
       w.error ??= `${node} (${rec.role}) ${fn} threw: ${e instanceof Error ? e.message : String(e)}`;
     }
@@ -326,7 +332,7 @@ function stableKey(m: InFlight): string {
  */
 /** Canonical string for one node's state, cached on the (never-changed-again) record. */
 export function nodeKey(r: NodeRec): string {
-  return cached(r, () => stable(r.state));
+  return cached(r, () => (r.disk === undefined ? stable(r.state) : stable({ state: r.state, disk: r.disk })));
 }
 
 export function canonical(w: World): string {
@@ -368,7 +374,7 @@ export function describeStep(w: World, step: Step): string {
     case "crash":
       return `${step.node} crashes`;
     case "restart":
-      return `${step.node} restarts with empty state`;
+      return w.nodes[step.node]?.disk !== undefined ? `${step.node} restarts: memory is empty, its disk is kept` : `${step.node} restarts with empty state`;
     case "heal":
       return "The network stops losing and duplicating messages";
   }

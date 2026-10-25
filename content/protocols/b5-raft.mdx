@@ -1,0 +1,63 @@
+Paxos (B4) agrees on one value. A real system needs to agree on a whole sequence of commands: put this, then append that, then delete the other. If every server applies the same commands in the same order, every server ends up with the same data. That's called **state machine replication**, and the sequence is the **log**.
+
+**Raft** is the most widely used way to keep a replicated log. It was designed to be easier to understand than Multi-Paxos, and it runs inside etcd (and so Kubernetes), Consul, CockroachDB and many others. It works by splitting the problem in two: first pick one **leader**, then let the leader decide the order of everything.
+
+## Terms and roles
+
+Time is divided into numbered **terms**. Each term starts with an election, and at most one leader wins it. Every server is in one of three roles:
+
+- **Follower**: answers the leader and candidates, and does nothing on its own.
+- **Candidate**: trying to become leader.
+- **Leader**: takes client commands and sends them to everyone.
+
+Every message carries the sender's term. Whenever a server sees a term bigger than its own, it adopts it and becomes a follower: its own term is over. Old messages with smaller terms are ignored. Terms are Raft's clock, and they're how stale leaders find out they've been replaced.
+
+## Elections
+
+A follower expects to hear from the leader regularly (**heartbeats**, sent every 10 ms in the lab). If its **election timer** runs out first, it assumes the leader is gone: it adds one to its term, becomes a candidate, votes for itself and sends **requestVote** to everyone. With votes from a majority (two of three), it becomes leader.
+
+Each server picks a random timeout (40 to 80 ms here) so that usually one server times out first and wins before anyone else tries. When two time out together and split the vote, both time out again, at different random moments, and try again in a higher term.
+
+Two rules keep elections safe:
+
+1. **One vote per term.** A server remembers whom it voted for (`votedFor`) and won't vote for anyone else in the same term. Since a majority is needed to win and two majorities always share a server, two candidates can't both win a term.
+2. **Only up-to-date candidates.** A server refuses its vote to a candidate whose log is behind its own: one whose last entry has an older term, or the same term but fewer entries. You'll see why below.
+
+## Replicating the log
+
+The leader appends each client command to its log as an **entry** `{ term, cmd }`, and sends new entries to followers in **appendEntries** (which doubles as the heartbeat). An entry is **committed** once a majority of servers have it. Committed entries are applied to the data, and the leader answers the client.
+
+The network can lose, repeat and reorder appendEntries. So each one says where its entries go: **prevLogIndex** and **prevLogTerm** describe the entry just before them. A follower accepts only if its own log has that exact entry. If not, it says no, and the leader tries again from one entry earlier, until they find the point where the two logs agree. From there, the follower deletes anything that conflicts and takes the leader's entries.
+
+That consistency check gives Raft its key property: if two logs have an entry with the same index and term, they're identical up to that point.
+
+## Why the up-to-date rule matters
+
+Say entry 5 was committed on s1 and s2, and the client was told "done". s3 missed it. Now s1 crashes. If s3 could win an election with s2's vote, it would become leader without entry 5, and its appendEntries would make s2 delete it. A committed, acknowledged command would vanish.
+
+The up-to-date rule stops this: s2 has entry 5 and s3 doesn't, so s2 refuses. Any server that can win needs a vote from a majority, and every majority includes someone with every committed entry. So a new leader always has them all.
+
+## What survives a crash
+
+A server that crashes loses everything in memory. If it forgot its vote, it could vote twice in one term after restarting. If it forgot its log, committed entries could disappear from the majority that was supposed to hold them. So three things must be written to disk *before* the server replies to anyone: **currentTerm**, **votedFor** and the **log**. The lab gives you `ctx.store(x)` to write to disk and `ctx.stored()` to read it back in `init`. Everything else (commitIndex, the applied data) can be rebuilt by replaying the log.
+
+<Note>
+One rule is already in the starter, and is famously subtle: a leader only commits entries from its **own** term by counting copies. Older entries become committed along with them. Counting copies of an old-term entry can commit something a later leader then overwrites; the Raft paper's figure 8 walks through exactly how.
+</Note>
+
+## The lab
+
+The starter is a complete Raft, with three bugs marked TODO, one per stage: how votes are granted, how followers accept entries, and what's saved to disk. The clients and the applying of commands (with duplicate detection, as in B2) are done for you, so a lost committed entry shows up as a client getting the wrong answer.
+
+Use the Run tab to watch elections happen: crash the leader and see who takes over.
+
+<Goals />
+
+## What to remember
+
+- Terms order everything: a higher term always wins, and a stale leader steps down when it sees one.
+- One vote per term, and only for candidates at least as up to date: that's what makes the leader trustworthy.
+- prevLogIndex and prevLogTerm let followers reject out-of-order or out-of-date entries.
+- Store currentTerm, votedFor and the log before replying. Everything else can be rebuilt.
+
+<Quiz />
